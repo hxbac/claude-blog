@@ -98,6 +98,12 @@ Gate 4 may report sentence-length variation, configured phrase-list matches,
 or vocabulary sampling for editorial review. These diagnostics do not affect
 the numeric score and are never machine-enforced as evidence of AI authorship.
 
+When `lang` resolves to `vi`, Gate 4 additionally runs
+`python3 scripts/vi_prose.py <draft>.md --json`. A `P0` finding (register drift) blocks.
+An AI-tell density above 2.0 per 1000 syllables blocks. Both are reported to
+`blog-writer` with the specific line numbers and suggested fixes, not as a generic
+"improve the writing" instruction.
+
 ## Gate 5: Asset Existence + Link Integrity
 
 - Every `<img src="...">` resolves. Local paths must stay under the draft root after `resolve()`, refuse symlinks, and use slug-sanitized filenames. Absolute URLs must use `http` or `https` only; reject `javascript:`, `data:`, `file:`, protocol-relative URLs, credentials in URLs, and invalid hosts.
