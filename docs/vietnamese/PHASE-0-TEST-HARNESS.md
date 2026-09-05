@@ -104,7 +104,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 import blog_render
 import blog_hygiene
 
-# (input, expected) — expected is the correct Vietnamese transliteration
+# (input, expected): expected is the correct Vietnamese transliteration
 VI_SLUG_CASES = [
     ("Hướng dẫn đặt hàng online",     "huong-dan-dat-hang-online"),
     ("Đánh giá sản phẩm 2026",        "danh-gia-san-pham-2026"),

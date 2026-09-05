@@ -85,7 +85,7 @@ VI_PROFILE: dict[str, Any] = {
         r'về\s+chúng\s+tôi',
         # "giới thiệu" alone means "to introduce" and appears in ordinary prose
         # ("bài viết giới thiệu sản phẩm"), so require an about-page object, a
-        # heading, or link syntax -- mirroring how the 'en' profile requires
+        # heading, or link syntax, mirroring how the 'en' profile requires
         # "about us / the author / me" rather than bare "about".
         r'giới\s+thiệu\s+(?:về\s+)?(?:chúng\s+tôi|công\s+ty|doanh\s+nghiệp|'
         r'tác\s+giả|đội\s+ngũ|website|trang\s+web)',
@@ -105,7 +105,7 @@ VI_PROFILE: dict[str, Any] = {
 
     # First-hand experience. Vietnamese has no single-word "I" that is safe to
     # match (tôi/mình/chúng tôi all appear in ordinary prose), so match the
-    # pronoun WITH an evidence verb -- the same approach the 'en' profile takes.
+    # pronoun WITH an evidence verb, the same approach the 'en' profile takes.
     'first_person_patterns': (
         r'(?:chúng\s+tôi|chúng\s+mình|tôi|mình|đội\s+ngũ\s+của\s+chúng\s+tôi)\s+'
         r'(?:đã\s+)?(?:thử\s+nghiệm|kiểm\s+nghiệm|kiểm\s+chứng|thử|đo|đo\s+lường|'

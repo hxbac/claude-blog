@@ -195,7 +195,7 @@ def main() -> int:
               f"ngưỡng {args.max_density})")
         for f in report['findings']:
             loc = f"dòng {f['line']}" if f['line'] else 'toàn bài'
-            print(f"  [{f['severity']}] {loc}: {f['label']} — {f['match']!r}")
+            print(f"  [{f['severity']}] {loc}: {f['label']} - {f['match']!r}")
             print(f"          → {f['fix']}")
         print('PASS' if report['passed'] else 'FAIL')
 

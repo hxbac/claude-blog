@@ -86,7 +86,7 @@ _UNDECOMPOSABLE = {
     "đ": "d",
     "Ð": "D",   # U+00D0 ETH, visually identical, occasionally pasted in
     "ð": "d",
-    "ı": "i",   # Turkish dotless i (U+0131) -- also undecomposable
+    "ı": "i",   # Turkish dotless i (U+0131), also undecomposable
     "İ": "I",
     "ø": "o",
     "Ø": "O",

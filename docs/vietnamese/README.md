@@ -55,6 +55,12 @@ parallel by separate agents. Phase 6 requires all of them.
 4. **Stdlib only in `scripts/`.** `analyze_blog.py` and its siblings are stdlib-only by
    design. Do not add a dependency to fix a Vietnamese problem.
 5. **Write commits in English.** Repository language is English.
+6. **The prose-hygiene linter scans `.py` as well as `.md`.** `scripts/lint_prose.py` forbids
+   em-dash (U+2014), en-dash (U+2013) and ASCII ` -- ` in every file under `scripts/`,
+   `tests/`, `skills/`, `agents/` and `docs/`, including inside comments, docstrings and
+   string literals. Code fences in these planning documents are exempt while they are
+   Markdown but stop being exempt the moment you paste them into a `.py` file. Run
+   `python scripts/lint_prose.py --root .` before every commit.
 
 ## Baseline
 

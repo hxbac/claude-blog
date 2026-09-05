@@ -140,7 +140,7 @@ names:
 
 | Repository | Variables |
 |---|---|
-| `claude-seo` (`scripts/dataforseo_merchant.py`, `extensions/dataforseo/install.sh`) | `DATAFORSEO_USERNAME` / `DATAFORSEO_PASSWORD` |
+| `claude-seo` (`claude-seo/scripts/dataforseo_merchant.py`, `extensions/dataforseo/install.sh`) | `DATAFORSEO_USERNAME` / `DATAFORSEO_PASSWORD` |
 | `claude-blog` (`blog-cannibalization`) | `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` |
 
 ### 2.6 US market hardcoded in 29 places
