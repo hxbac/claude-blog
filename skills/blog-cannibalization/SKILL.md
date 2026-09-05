@@ -26,7 +26,8 @@ local-only analysis (default) and DataForSEO API mode for SERP-level data.
 | API | `--api` | ~$0.01/call | DataForSEO Page Intersection + Ranked Keywords |
 
 Local mode works without any API keys. API mode requires DataForSEO credentials
-set as environment variables: `DATAFORSEO_LOGIN` and `DATAFORSEO_PASSWORD`.
+set as environment variables: `DATAFORSEO_USERNAME` (or `DATAFORSEO_LOGIN`) and
+`DATAFORSEO_PASSWORD`.
 
 ## Local Mode Workflow
 
@@ -78,12 +79,13 @@ Display the results table and per-cluster recommendations.
 
 ## API Mode Workflow (DataForSEO)
 
-Requires the `--api` flag and a dedicated local CLI wrapper that reads
-`DATAFORSEO_LOGIN` and `DATAFORSEO_PASSWORD` from the environment and emits
+Requires the `--api` flag and the local CLI wrapper at
+`scripts/dataforseo_labs.py`, which reads `DATAFORSEO_USERNAME` (or
+`DATAFORSEO_LOGIN`) and `DATAFORSEO_PASSWORD` from the environment and emits
 JSON. Do not use WebFetch for DataForSEO POST calls and never expose Basic auth
-headers, login, password, or encoded credentials in prompts or reports. If no
-wrapper exists in the project, report `SKIPPED: DataForSEO wrapper unavailable`
-and run local mode.
+headers, login, password, or encoded credentials in prompts or reports. If the
+wrapper reports a `missing_credentials` error, report `SKIPPED: DataForSEO
+wrapper unavailable` and run local mode.
 
 ### Endpoints Used
 
@@ -96,8 +98,8 @@ POST https://api.dataforseo.com/v3/dataforseo_labs/google/page_intersection/live
     "1": "https://example.com/post-a",
     "2": "https://example.com/post-b"
   },
-  "language_code": "en",
-  "location_code": 2840
+  "language_code": "vi",
+  "location_code": 2704
 }
 ```
 Cost: ~$0.01 per call. Returns overlapping keywords with position, volume, CPC.
@@ -108,8 +110,8 @@ POST https://api.dataforseo.com/v3/dataforseo_labs/google/ranked_keywords/live
 
 {
   "target": "https://example.com/post-a",
-  "language_code": "en",
-  "location_code": 2840
+  "language_code": "vi",
+  "location_code": 2704
 }
 ```
 

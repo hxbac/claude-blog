@@ -149,6 +149,20 @@ claude-blog/
 Internal capability: `blog-chart` generates inline SVG charts for `/blog write`
 and `/blog rewrite`; it is not a top-level user command.
 
+## Default market
+
+All DataForSEO and Keyword Planner calls default to `location_code=2704` (Vietnam) and
+`language_code="vi"`. Change only when the user names a different country.
+
+- Province/city level: use the SERP API, not Labs. Hanoi 1028580, Ho Chi Minh City
+  1028581, Da Nang 1028809. DataForSEO Labs covers Vietnam at country level only.
+- `search_volume` bills **per task, not per keyword** (up to ~1000 keywords per task).
+  Always batch into one call. Calling it once per keyword costs 1000x more for the
+  same data.
+- Prefer the standard queue over live mode unless the user says it is urgent:
+  SERP $0.0006 vs $0.002, Keywords Data $0.06 vs $0.09.
+- Never re-request a keyword already fetched in the current session.
+
 ## Development Rules
 
 - Keep SKILL.md files under 500 lines / 5000 tokens
