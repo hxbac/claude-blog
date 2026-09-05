@@ -484,6 +484,36 @@ def _validate_frontmatter(fm: dict, body: str) -> None:
         )
 
 
+def _stamp_heading_ids(html: str) -> str:
+    """Give every h2..h4 an id derived from its text, unless it already has one.
+
+    blog_hygiene.py builds its table of contents by slugifying heading text with
+    vi_text.slugify and linking to "#<slug>". Nothing was stamping matching ids
+    onto the headings themselves, so every TOC entry was a dead anchor and Gate 5
+    reported one "anchor link target missing" per entry. Using the same slugify
+    function here makes the two agree by construction rather than by convention.
+
+    Duplicate headings get a -2, -3 suffix, matching how anchor generators
+    conventionally disambiguate.
+    """
+    seen: dict[str, int] = {}
+
+    def add_id(match: "re.Match[str]") -> str:
+        opening, level, attrs, inner = match.group(0), match.group(1), match.group(2), match.group(3)
+        if re.search(r'\bid\s*=', attrs):
+            return opening
+        text = html_lib.unescape(re.sub(r"<[^>]+>", "", inner)).strip()
+        slug = _vi_slugify(text, fallback="")
+        if not slug:
+            return opening
+        seen[slug] = seen.get(slug, 0) + 1
+        if seen[slug] > 1:
+            slug = f"{slug}-{seen[slug]}"
+        return f"<h{level}{attrs} id=\"{slug}\">{inner}</h{level}>"
+
+    return re.sub(r"<h([234])([^>]*)>(.*?)</h\1>", add_id, html, flags=re.DOTALL)
+
+
 def _warn_if_stdlib_fallback_is_lossy(body: str) -> None:
     """If python-markdown is not importable AND the body contains syntax the
     stdlib fallback drops on the floor (tables, footnotes, def lists,
@@ -521,6 +551,8 @@ def _render_html(md_path: Path, out_dir: Path, hero_filename: str) -> Path:
     # the H1 is still recognised; count=1 so only the leading H1 is stripped,
     # never a legitimate mid-document H1.
     body_html = re.sub(r"\A\s*<h1\b[^>]*>.*?</h1>\s*", "", body_html, count=1, flags=re.DOTALL)
+    # Heading ids must exist before any table of contents can link to them.
+    body_html = _stamp_heading_ids(body_html)
     # Word count from rendered visible text. Must match what Gate 5 measures
     # from <article> so the wordCount injected into JSON-LD does not drift
     # past the 5% tolerance and falsely block delivery. Gate 5's _MetaParser
