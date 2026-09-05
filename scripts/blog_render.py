@@ -35,6 +35,10 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Optional
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from vi_text import slugify as _vi_slugify  # noqa: E402
+
 MAX_MD_BYTES = 4 * 1024 * 1024  # 4MB cap on a single markdown source
 REQUIRED_FRONTMATTER_KEYS = ("title", "description", "date", "author")
 # Markdown syntax fingerprints handled by python-markdown but NOT by the
@@ -159,11 +163,7 @@ img{max-width:100%;height:auto}
 
 
 def _slugify(text: str) -> str:
-    s = text.lower().strip()
-    s = re.sub(r"[^a-z0-9\s\-]", "", s)
-    s = re.sub(r"\s+", "-", s)
-    s = re.sub(r"-+", "-", s)
-    return s.strip("-") or "post"
+    return _vi_slugify(text, fallback="post")
 
 
 def _is_safe_url(value: str, *, media: bool = False) -> bool:
