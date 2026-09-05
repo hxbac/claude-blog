@@ -68,18 +68,27 @@ Recorded on the working tree at the time this plan was written, `claude-blog` on
 at `84f7abf`:
 
 ```
-claude-blog:  346 passed, 1 failed, 1 skipped
+claude-blog:  346 passed, 1 skipped   (with python-markdown installed)
 claude-seo :  439 passed, 2 failed
 ```
 
-The failures are pre-existing and unrelated to this work. Do not fix them as part of a
-phase, and do not let them block one:
+`claude-seo`'s two failures are pre-existing and unrelated: `test_sync_flow.py::test_dry_run_exits_zero`
+and `::test_dry_run_produces_valid_json` reach the network to pull FLOW references and fail
+without it. Do not fix them as part of a phase.
 
-- `claude-blog` `test_markdown_body_html_is_sanitized` asserts the literal substring
-  `alert(1)` is absent from rendered HTML, but the renderer correctly HTML-escapes it to
-  `&lt;script&gt;alert(1)&lt;/script&gt;`. The output is safe; the assertion is over-strict.
-- `claude-seo` `test_sync_flow.py::test_dry_run_exits_zero` and `::test_dry_run_produces_valid_json`
-  reach the network to pull FLOW references and fail without it.
+**Correction.** Earlier revisions of this file recorded `claude-blog`'s
+`test_markdown_body_html_is_sanitized` as a pre-existing failure with an over-strict
+assertion, and four implementing agents were told to ignore it on that basis. That diagnosis
+was wrong. The test fails only when **python-markdown is not installed**: `blog_render.py`
+falls back to a stdlib markdown implementation that escapes raw HTML blocks wholesale, so the
+literal string the test looks for really does survive into the output. Installing `markdown`
+makes it pass, and it now passes at every commit on this branch when the dependency is
+present, including the first.
+
+The library was not declared in `requirements.txt` at all. It is now, as a core dependency,
+because Gate 2 of the delivery contract requires a rendered `.html` and the fallback also
+drops tables, footnotes and definition lists (`blog_render.py` warns loudly on stderr when it
+takes that path with those constructs present, but not for raw HTML).
 
 ## Environment
 
