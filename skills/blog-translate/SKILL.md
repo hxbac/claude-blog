@@ -12,6 +12,7 @@ description: >
   Use when user says "translate blog", "blog translate", "uebersetzen",
   "traduire", "traducir", "translate post", "blog auf Deutsch", "blog en
   espanol".
+  Also use when the request is written in Vietnamese, for example "dịch bài", "dịch sang tiếng Anh", "bản tiếng Anh của bài này".
 user-invokable: true
 argument-hint: "<file> --to <comma-separated-codes>"
 license: MIT

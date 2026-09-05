@@ -8,6 +8,7 @@ description: >
   DACH, Francophone, Hispanic, and Japanese markets.
   Use when user says "localize blog", "blog localize", "cultural adaptation",
   "adapt for Germany", "lokalisieren", "localiser", "adaptar".
+  Also use when the request is written in Vietnamese, for example "bản địa hoá", "chỉnh cho phù hợp người Việt", "sửa cho tự nhiên với người đọc Việt".
 user-invokable: true
 argument-hint: "<file> --locale <locale-code>"
 license: MIT

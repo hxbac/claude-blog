@@ -8,6 +8,7 @@ description: >
   severity-scored report with merge or differentiate recommendations. Use when
   user says "cannibalization", "keyword overlap", "competing pages", "duplicate
   keywords", "cannibalize".
+  Also use when the request is written in Vietnamese, for example "trùng từ khoá", "hai bài cạnh tranh nhau", "bài nào ăn thịt bài nào".
 user-invokable: true
 argument-hint: "[directory] [--api]"
 license: MIT

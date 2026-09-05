@@ -8,6 +8,7 @@ description: >
   blog-write and blog-rewrite; falls back gracefully when MCP is unavailable.
   Use when user says "blog image", "generate hero image", "blog illustration",
   "edit blog image", "OG image".
+  Also use when the request is written in Vietnamese, for example "tạo ảnh", "ảnh bìa", "ảnh minh hoạ", "làm ảnh cho bài".
 user-invokable: true
 argument-hint: "[generate|edit|setup] [description-or-path]"
 license: MIT

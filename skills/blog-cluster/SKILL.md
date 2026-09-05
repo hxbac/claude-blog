@@ -11,6 +11,7 @@ description: >
   Use when user says "blog cluster", "topic cluster", "content cluster",
   "cluster plan", "cluster execute", "pillar content", "hub and spoke",
   "content ecosystem", "cluster map".
+  Also use when the request is written in Vietnamese, for example "cụm chủ đề", "nhóm bài theo chủ đề", "topic cluster", "kiến trúc nội dung".
 license: MIT
 compatibility: Requires Claude Code and claude-blog (provides blog-write, blog-chart, blog-image)
 metadata:

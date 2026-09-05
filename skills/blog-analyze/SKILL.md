@@ -11,6 +11,7 @@ description: >
   markdown, HTML, URL). Use when user says "analyze blog", "audit blog",
   "blog score", "check blog quality", "blog review", "rate this blog",
   "blog health check".
+  Also use when the request is written in Vietnamese, for example "chấm điểm bài", "đánh giá bài viết", "bài này bao nhiêu điểm", "phân tích chất lượng bài".
 user-invokable: true
 argument-hint: "<file-path>"
 license: MIT

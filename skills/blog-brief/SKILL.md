@@ -9,6 +9,7 @@ description: >
   Briefs are optimized for Google rankings and AI citation visibility as part of SEO. Use
   when user says "content brief", "blog brief", "write brief", "SEO brief",
   "article brief", or "content requirements".
+  Also use when the request is written in Vietnamese, for example "làm brief", "đề cương nội dung", "brief cho bài viết".
 user-invokable: true
 argument-hint: "<topic>"
 license: MIT

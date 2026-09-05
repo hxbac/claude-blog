@@ -9,6 +9,7 @@ description: >
   Flags uncited claims as UNVERIFIED. Use when user says "fact check",
   "verify statistics", "check sources", "validate claims", "factcheck",
   "source verification".
+  Also use when the request is written in Vietnamese, for example "kiểm chứng số liệu", "số liệu này đúng không", "kiểm tra nguồn", "fact check".
 user-invokable: true
 argument-hint: "[file]"
 license: MIT

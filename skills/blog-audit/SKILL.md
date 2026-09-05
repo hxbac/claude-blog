@@ -6,6 +6,7 @@ description: >
   Runs canonical batch analysis before site-wide checks. Produces per-post scores
   and a prioritized action queue. Use when user says "audit blog", "blog audit",
   "site audit", "blog health", "audit all posts", "check all blogs".
+  Also use when the request is written in Vietnamese, for example "kiểm tra toàn bộ blog", "rà soát cả site", "audit blog", "sức khoẻ blog".
 user-invokable: true
 argument-hint: "[directory]"
 license: MIT

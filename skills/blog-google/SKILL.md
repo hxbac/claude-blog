@@ -10,6 +10,7 @@ description: >
   says "google data", "page speed", "core web vitals", "search console",
   "indexation", "GA4", "keyword research", "nlp entities", "blog performance",
   "youtube search", "google api setup".
+  Also use when the request is written in Vietnamese, for example "Search Console", "Core Web Vitals", "tốc độ trang", "dữ liệu Google".
 user-invokable: true
 argument-hint: "[setup|pagespeed|crux|crux-history|gsc|inspect|index|ga4|nlp|youtube|keywords|report|quotas] [url|property|query]"
 license: MIT

@@ -9,6 +9,7 @@ description: >
   Use when user says "blog audio", "narrate blog", "audio version",
   "text to speech", "tts", "podcast mode", "read aloud", "audio narration",
   "voice", "narration", "generate audio".
+  Also use when the request is written in Vietnamese, for example "đọc thành audio", "làm podcast từ bài", "bản đọc".
 user-invokable: true
 argument-hint: "[generate|voices|setup] [file-or-text] [--mode summary|full|dialogue] [--voice name]"
 license: MIT

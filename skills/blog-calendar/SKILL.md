@@ -8,6 +8,7 @@ description: >
   evidence changes, and sustainable publishing capacity.
   Use when user says "editorial calendar", "content calendar", "blog calendar",
   "publishing schedule", "blog plan", "content plan", "what should I write".
+  Also use when the request is written in Vietnamese, for example "lịch nội dung", "kế hoạch đăng bài", "content calendar", "lịch đăng tháng này".
 user-invokable: true
 argument-hint: "[<niche>]"
 license: MIT

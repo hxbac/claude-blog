@@ -8,6 +8,7 @@ description: >
   Google rankings, E-E-A-T, and AI citations. Supports any platform. Use when
   user says "blog", "blog post", "blog audit", "topic cluster",
   "multilingual blog", or any /blog subcommand.
+  Also use when the request is written in Vietnamese, for example "bài viết", "blog", "nội dung website", "SEO", "viết bài cho web".
 license: MIT
 compatibility: Requires Claude Code and Python 3.11+ for quality scoring
 metadata:

@@ -8,6 +8,7 @@ description: >
   Use when user says "locale audit", "blog locale-audit", "check translations",
   "multilingual audit", "translation check", "hreflang check",
   "Uebersetzungen pruefen".
+  Also use when the request is written in Vietnamese, for example "rà soát bản dịch", "kiểm tra hreflang", "so bản Việt với bản Anh".
 user-invokable: true
 argument-hint: "<directory>"
 license: MIT

@@ -9,6 +9,7 @@ description: >
   and HTML output.
   Use when user says "write blog", "new blog post", "create article",
   "write about", "draft blog", "generate blog post".
+  Also use when the request is written in Vietnamese, for example "viết bài", "viết blog", "viết một bài về", "soạn bài", "tạo bài viết", "làm bài chuẩn SEO".
 user-invokable: true
 argument-hint: "<topic>"
 license: MIT

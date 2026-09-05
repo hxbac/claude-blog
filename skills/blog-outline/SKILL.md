@@ -11,6 +11,7 @@ description: >
   consume. Use when user says "outline", "blog outline", "content outline",
   "structure blog", "plan sections", "article skeleton", "heading structure",
   "SERP analysis", "competitive outline", "plan article".
+  Also use when the request is written in Vietnamese, for example "dàn ý", "lên outline", "cấu trúc bài viết", "chia heading".
 user-invokable: true
 argument-hint: "<topic>"
 license: MIT

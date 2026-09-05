@@ -8,6 +8,7 @@ description: >
   adds images, generates SVG charts, and updates freshness signals. Works
   with any blog format (MDX, markdown, HTML). Use when user says "rewrite
   blog", "optimize blog", "update blog", "improve blog", "fix blog".
+  Also use when the request is written in Vietnamese, for example "viết lại bài", "tối ưu lại bài", "sửa bài cho chuẩn SEO", "cải thiện bài cũ".
 user-invokable: true
 argument-hint: "<file-path>"
 license: MIT

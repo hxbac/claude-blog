@@ -163,6 +163,53 @@ All DataForSEO and Keyword Planner calls default to `location_code=2704` (Vietna
   SERP $0.0006 vs $0.002, Keywords Data $0.06 vs $0.09.
 - Never re-request a keyword already fetched in the current session.
 
+## Conversational routing (no slash command required)
+
+The primary user is a Vietnamese SEO content marketer who does not type slash
+commands. They open Claude Code in this directory and describe what they want in
+Vietnamese. Route from intent, and never answer with "use `/blog write`" when the
+request itself is already the instruction.
+
+Every skill description carries its Vietnamese trigger phrases, so matching
+happens automatically. What this section adds is the behaviour around the match:
+
+- **Act, do not offer.** "viết cho tôi bài về cách chọn máy pha cà phê" is a
+  request to write the post, not a request for options. Invoke `blog-write`.
+- **Reply in Vietnamese** when the user writes in Vietnamese, including gate
+  failures and review findings. Keep English only for code, file paths, frontmatter
+  keys and metric names.
+- **Assume `lang: vi`** unless the user names another language. This selects the
+  `vi` language profile in `analyze_blog.py`; getting it wrong silently scores the
+  post against English patterns and costs roughly 30 of the 100 points.
+- **A Vietnamese post needs an image key.** The keyless Openverse fallback indexes
+  English metadata only, so a Vietnamese query returns nothing and Gate 2 fails on
+  a missing hero. If none of `PEXELS_API_KEY`, `PIXABAY_API_KEY`,
+  `UNSPLASH_ACCESS_KEY` or `GOOGLE_AI_API_KEY` is set, say so before writing rather
+  than after the gate blocks.
+- **Ambiguity between neighbouring skills gets one short question**, not a menu of
+  31. "tối ưu bài này" could be `blog-rewrite`, `blog-seo-check` or `blog-analyze`;
+  ask which outcome they want in one line.
+
+### Project-scoped install
+
+`link-skills.sh` symlinks `skills/*` and `agents/*` into `.claude/`, so this
+checkout is the live source and nothing is copied into `~/.claude/`. Consequences
+worth remembering:
+
+- Editing a `SKILL.md` here takes effect on the next prompt. `git diff` is a
+  complete audit of what the agent is allowed to read.
+- Claude Code must run with this repository root as its working directory. About
+  thirty skills call helpers by repository-relative path
+  (`python3 scripts/blog_render.py`, `python3 skills/blog-google/scripts/run.py`);
+  those resolve nowhere else.
+- `.claude/settings.json` pins `CLAUDE_BLOG_SCRIPTS_DIR` and
+  `CLAUDE_BLOG_LOAD_UNTRUSTED_HELPER` to absolute paths in this checkout. Without
+  them the delivery-contract block falls back to `$HOME/.claude/scripts`, which does
+  not exist under a project-scoped install.
+- Per Claude Code precedence, a personal skill of the same name overrides the
+  project one. Do not run `install.sh` while this wiring is in use, or `~/.claude/`
+  wins and the audit trail stops being the thing that executes.
+
 ## Development Rules
 
 - Keep SKILL.md files under 500 lines / 5000 tokens
