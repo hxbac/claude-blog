@@ -34,6 +34,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
+import env_file  # noqa: F401  (loads ~/.claude/.env on import)
 from vi_text import normalize as vi_normalize
 
 try:

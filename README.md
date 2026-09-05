@@ -316,6 +316,27 @@ Installation details: [`docs/INSTALLATION.md`](docs/INSTALLATION.md).
 - Python 3.11+ for quality scoring, the delivery contract runners, renderers, and lint.
 - Optional: `pip install -r requirements.txt` for advanced analysis, readability scoring, schema detection, and media workflows.
 
+### API Credentials
+
+Every script reads its keys from a single `.env` file, so nothing has to be exported by hand
+in the shell that launches Claude Code:
+
+```bash
+cp .env.example ~/.claude/.env
+chmod 600 ~/.claude/.env
+python3 scripts/env_file.py --check
+```
+
+`scripts/env_file.py` searches `$CLAUDE_ENV_FILE`, then `~/.claude/.env`, then `<repo>/.env`,
+and never overrides a variable that is already exported. Parsing is literal: no shell
+expansion and no inline comments, so a password containing `#` or a space survives intact.
+Values are never printed; `--check` reports secrets as `set (N chars)`.
+
+At least one image key (`PEXELS_API_KEY`, `PIXABAY_API_KEY`, `UNSPLASH_ACCESS_KEY` or
+`GOOGLE_AI_API_KEY`) is **required for a non English post**: the keyless Openverse fallback
+indexes English metadata only, so a Vietnamese query returns nothing and Gate 2 fails on a
+missing hero image. See [`.env.example`](.env.example) for the full list.
+
 ### Automated CI Quality Gates
 
 1. **pytest**: the complete security, behavioral, regression, installer, and delivery-contract suite.
