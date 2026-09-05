@@ -181,6 +181,19 @@ ogImage: "/path/to/generated-image.png"
 ```
 6. **Refinement suggestions** - 1-2 ideas if relevant
 
+## Vietnamese-Market Image Guidance
+
+**Vietnamese text in generated images.** Every current image model renders
+Vietnamese diacritics incorrectly: missing tone marks, marks on the wrong
+vowel, `đ` rendered as `d`. Never ask a model to draw Vietnamese text inside
+an image. Generate the image without text and overlay it with HTML/CSS,
+where the text stays selectable, translatable and correct.
+
+**Stock photo path.** Unsplash, Pexels, Pixabay and Openverse are all thin on
+Vietnamese subjects: people, streets, products, signage. For a post that
+needs local imagery, say so rather than shipping a generic stock photo of a
+Western office.
+
 ## Edit Workflow
 
 For `/blog image edit <path> <instructions>`:

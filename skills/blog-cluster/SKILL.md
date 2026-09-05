@@ -193,6 +193,21 @@ A static, self-contained HTML file with an embedded SVG visualization. Hard rule
 
 The map shows: a central pillar node, color-coded cluster groups radiating outward, spoke nodes within each cluster, and link lines connecting related nodes.
 
+### Vietnamese example (illustrative pillar/spoke naming, not a translation)
+
+For the seed keyword `ăn dặm cho bé` (weaning food for babies):
+
+- **Pillar**: Ăn Dặm Cho Bé - Hướng Dẫn Từ A Đến Z Cho Mẹ Mới
+- **Spoke A1**: Bé 6 Tháng Ăn Dặm Kiểu Nhật Hay Kiểu BLW?
+- **Spoke A2**: Lịch Ăn Dặm Cho Bé 6-12 Tháng Theo Từng Tuần
+- **Spoke B1**: Bé Ăn Dặm Bị Táo Bón - Nguyên Nhân Và Cách Xử Lý
+
+Vietnamese spoke titles here answer a parent's immediate decision ("kiểu
+Nhật hay kiểu BLW", "bị táo bón") rather than filling in the JSON schema's
+`"title": "Post title"` placeholder with a literal translation of an
+English pattern; a title built that way reads as foreign to a Vietnamese
+reader.
+
 ### Step 6. Present plan to user
 
 Show a summary table of clusters and posts, total interlinks, estimated words, and the file paths. Ask for confirmation before proceeding to execution. Wait for explicit user approval. Do not auto-execute.

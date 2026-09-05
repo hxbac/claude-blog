@@ -195,6 +195,35 @@ adapt this skeleton to match the template's section structure:
 - [INTERNAL-LINK: anchor text → next logical content]
 ```
 
+### Vietnamese example (a genuinely Vietnamese outline, not a translation of the template above)
+
+```markdown
+# Tiết Kiệm Tiền Điện Mùa Hè: 7 Cách Đơn Giản Cho Gia Đình
+
+## Mở đầu (100-150 từ)
+- Vào thẳng vấn đề: hóa đơn điện tháng 6 tăng gấp đôi vì bật điều hòa cả ngày
+- Nêu con số cụ thể nếu có
+
+## Đặt điều hòa ở 26-27 độ thay vì 20 độ
+- Câu trả lời trước, giải thích sau
+- Số liệu tiêu thụ điện theo từng mức nhiệt độ
+- [ẢNH: điều hòa treo tường với chỉ số nhiệt độ]
+
+## Vệ sinh lưới lọc điều hòa mỗi tháng
+- Lưới bẩn làm máy chạy tốn điện hơn 5-10%
+- Hướng dẫn từng bước kèm ảnh thực tế
+
+## Kết luận (100-150 từ)
+- Tóm tắt 3 việc làm ngay hôm nay
+- [CTA: Tải bảng theo dõi điện năng miễn phí]
+```
+
+Vietnamese heading and CTA conventions differ from the English template
+above rather than mirroring it word for word: the title leads with a number
+and the concrete benefit ("7 Cách Đơn Giản") instead of the English
+question-format pattern, and the CTA uses a direct verb-first imperative
+("Tải ... miễn phí") rather than a rendering of "Download now."
+
 Present the outline to the user for approval before writing.
 
 **Visual element pacing**: Insert `[IMAGE]`, `[CHART]`, `[VIDEO]`, or `[CALLOUT]` markers
