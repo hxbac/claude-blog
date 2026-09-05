@@ -67,6 +67,13 @@ Requirements - it must contain, in natural Vietnamese:
 - 3+ inline citations to real authoritative sources
 - At least one table and one list
 - 1,200+ words so word-count thresholds are not the limiting factor
+- `coverImage`, `coverImageAlt` and `ogImage` in frontmatter. Without them
+  `technical_elements.social_meta` and `images` score near zero, which has nothing to do
+  with language and would otherwise be mistaken for a Vietnamese defect.
+- An `[ORIGINAL DATA]` marker and a `[PERSONAL EXPERIENCE]` marker. These are literal,
+  language-independent tags that `analyze_blog.py` reads as author-declared evidence.
+  Without them `content_quality.originality` is capped at 1 out of 5 no matter how good the
+  Vietnamese is. Only add them where they are factually true of the fixture.
 
 Write it as a real article on a real topic (suggested: *"Cách tối ưu Core Web Vitals cho
 website tiếng Việt"*). Do not write filler - the fixture must be defensible as a genuinely

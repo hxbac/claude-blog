@@ -103,13 +103,56 @@ def test_vietnamese_tldr_detected(vi_good):
     assert result["has_tldr"] is True
 
 
-def test_good_vietnamese_post_can_reach_gate_threshold(vi_good, tmp_path):
-    """The headline test: Gate 4 requires >= 90. Today this is unreachable
-    for vi because the post is silently scored under the 'en' profile."""
+def _score_vi_good(vi_good, tmp_path):
     path = tmp_path / "blog_vi_good.md"
     path.write_text(vi_good, encoding="utf-8")
-    result = analyze_blog.analyze_file(str(path))
-    assert result["score"]["total"] >= 90, (
-        f"scored {result['score']['total']}; "
-        f"category_details: {result['score'].get('category_details')}"
+    return analyze_blog.analyze_file(str(path))["score"]
+
+
+# The language-attributable subscores. Each one is a signal that
+# LANGUAGE_PROFILES gates, measured today under the wrong ('en') profile.
+# Asserting these individually rather than asserting a single total is
+# deliberate: the total also contains categories a markdown-only fixture
+# cannot earn (JSON-LD schema, a real hero image, OG meta, measured page
+# speed), so a total-score threshold would conflate language support with
+# delivery-pipeline completeness and could never be satisfied here.
+VI_SIGNAL_FLOORS = [
+    ("content_quality", "readability", 5),   # 1 today: Flesch on a monosyllabic language
+    ("content_quality", "originality", 4),   # methodology patterns are English-only today
+    ("eeat_signals", "trust", 3),            # 0 today: about/contact/editorial are English-only
+    ("eeat_signals", "experience", 3),       # first-person patterns are English-only today
+    ("ai_citation_readiness", "entity_clarity", 2),  # hardcoded English regex, analyze_blog.py:1291
+    ("ai_citation_readiness", "extraction", 2),      # summary_labels are English-only today
+]
+
+
+@pytest.mark.parametrize("category,signal,floor", VI_SIGNAL_FLOORS)
+def test_language_gated_signal_scores(vi_good, tmp_path, category, signal, floor):
+    """Each LANGUAGE_PROFILES-gated signal must score for Vietnamese.
+
+    These are the points lost purely to language mismatch. They are the
+    contract Phase 2 has to satisfy.
+    """
+    score = _score_vi_good(vi_good, tmp_path)
+    actual = score["category_details"][category]["breakdown"][signal]
+    assert actual >= floor, (
+        f"{category}.{signal} = {actual}, expected >= {floor}. "
+        f"Full breakdown: {score['category_details'][category]['breakdown']}"
+    )
+
+
+def test_good_vietnamese_post_clears_markdown_only_floor(vi_good, tmp_path):
+    """Total score for a markdown-only Vietnamese fixture.
+
+    Measured 55 before any Vietnamese support and 69 with a 'vi' profile in
+    place, so 70 is a real bar rather than an aspiration. It is deliberately
+    NOT the delivery contract's 90: the remaining points live in
+    technical_elements (JSON-LD schema, hero image, OG meta, page speed),
+    which /blog write produces during rendering and a bare .md fixture
+    cannot carry. Gate 4's threshold is verified end to end in Phase 6, not
+    here.
+    """
+    score = _score_vi_good(vi_good, tmp_path)
+    assert score["total"] >= 70, (
+        f"scored {score['total']}; category_details: {score.get('category_details')}"
     )

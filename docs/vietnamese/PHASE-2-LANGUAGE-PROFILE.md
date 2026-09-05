@@ -269,12 +269,17 @@ if profile["readability_model"] == 'vi_syllable':
     # "syllables per word" carries no signal and Flesch is meaningless here.
     # Sentence length and the tail of very long sentences do carry signal.
     # This is a documented heuristic, not a published formula.
-    sentences_text = [s for s in re.split(r'[.!?…]+', text)
+    # Split on terminal punctuation OR a line break. Markdown headings, list
+    # items and table rows carry no full stop, so a punctuation-only split
+    # merges each one into the following sentence and inflates the average.
+    # Measured on the Vietnamese fixture: 27.1 syllables/sentence without the
+    # newline term, 22.8 with it.
+    sentences_text = [s for s in re.split(r'[.!?…]+|\n+', text)
                       if vi_text.count_syllables(s) >= 2]
     lengths = [vi_text.count_syllables(s) for s in sentences_text] or [0]
     avg_syllables = sum(lengths) / len(lengths)
     long_ratio = sum(1 for n in lengths if n > 30) / max(len(lengths), 1)
-    score = 100.0 - 3.5 * max(0.0, avg_syllables - 10) - 25.0 * long_ratio
+    score = 100.0 - 3.0 * max(0.0, avg_syllables - 10) - 15.0 * long_ratio
     score = max(0.0, min(100.0, score))
     return {
         'reading_model': 'vi_syllable',
@@ -319,16 +324,35 @@ model:
 
 Measured against real Vietnamese prose:
 
+Measured through the real `_plain_text_for_analysis` pipeline, with the newline-aware
+splitter and the constants above:
+
 | Sample | Sentences | Avg syllables/sentence | >30 syll | Score | Points |
 |---|---:|---:|---:|---:|---:|
-| Technical documentation (long-form) | 242 | 14.7 | 9.1% | 81.1 | 7/7 |
-| Technical documentation (second doc) | 245 | 14.9 | 9.0% | 80.6 | 7/7 |
-| Ordinary blog prose | 4 | 11.5 | 0% | 94.8 | 7/7 |
-| Vietnamese news copy | 3 | 16.7 | 0% | 76.7 | 7/7 |
+| `tests/fixtures/blog_vi_good.md` | 57 | 22.8 | 35.1% | 56.3 | 5/7 |
+| `tests/fixtures/blog_vi_bad.md` | 24 | 15.2 | 8.3% | 83.1 | 7/7 |
+| Technical documentation (long-form) | 340 | 10.5 | 2.6% | 98.2 | 7/7 |
+| Ordinary blog prose | 4 | 11.5 | 0% | 95.5 | 7/7 |
+| Vietnamese news copy | 3 | 16.7 | 0% | 80.0 | 7/7 |
 | Academic run-on sentences | 1 | 79.0 | 100% | 0.0 | 1/7 |
 
 The model discriminates where it should - convoluted academic prose is caught, ordinary
 good writing is not penalized - and it does not saturate at the top for a single style.
+
+Two calibration notes worth keeping:
+
+- **The good fixture scores 5/7, not 7/7.** That is correct. It averages 22.8 syllables per
+  sentence with 35% of sentences over 30, which is dense even for Vietnamese technical
+  writing. The model is telling the truth about it.
+- **The bad fixture scores 7/7 on readability.** Also correct, and a useful separation of
+  concerns: `blog_vi_bad.md` is formulaic, not unreadable. Formulaic prose is what
+  `scripts/vi_prose.py` catches in Phase 3. Readability and authenticity are different
+  measurements and must not be collapsed into one number.
+
+An earlier draft of this document used `3.5` and `25.0` with a punctuation-only splitter.
+Measured against the real fixture that scored 28.8 and awarded 1/7 to a competently written
+post, which was too harsh and would have pushed a Phase 2 implementer to weaken the profile
+chasing points. The constants above were re-derived from measurement.
 
 ## Pitfalls
 
@@ -356,8 +380,9 @@ good writing is not penalized - and it does not saturate at the top for a single
 - [ ] `'vi'` present in `LANGUAGE_PROFILES` with all 8 keys
 - [ ] `'en'` and `'tr'` also carry `entity_definition_patterns` and `editorial_patterns`
 - [ ] `lang: "vi"` present in the `blog-write` frontmatter template
-- [ ] `tests/test_vietnamese_analysis.py` - all tests pass, including
-      `test_good_vietnamese_post_can_reach_gate_threshold`
+- [ ] `tests/test_vietnamese_analysis.py` - all tests pass, including every
+      `test_language_gated_signal_scores` case and
+      `test_good_vietnamese_post_clears_markdown_only_floor`
 - [ ] English and Turkish scores for the existing fixtures are **byte-identical** to the
       pre-change values - capture them first (see Verification)
 - [ ] Full suite still `341 passed` plus new tests
@@ -388,7 +413,24 @@ done
   python3 -c "import json,sys; d=json.load(sys.stdin); print(d['total_score'], d.get('readability',{}).get('reading_model'))"
 ```
 
-Expected: score ≥ 90 and `vi_syllable`.
+Expected: `vi_syllable`, and a total of **75** on `blog_vi_good.md` (60 before this phase).
+
+**The total is not 90 and must not be pushed to 90 here.** Measured breakdown after this
+phase:
+
+| Category | Score | Note |
+|---|---|---|
+| content_quality | 23/30 | readability 5, originality 5 |
+| seo_optimization | 20/25 | unaffected by language |
+| eeat_signals | 13/15 | trust 4, experience 3 |
+| technical_elements | **7/15** | schema 0, images 1, page speed 1 |
+| ai_citation_readiness | 12/15 | entity_clarity 2, extraction 2 |
+
+The 8 missing points in `technical_elements` need JSON-LD schema, a real hero image file and
+measured page speed. `/blog write` produces all three during rendering; a bare `.md` fixture
+cannot carry them. Gate 4's 90-point threshold is verified end to end in Phase 6, against a
+real delivered post. If you find yourself editing the fixture or the profile to reach 90
+here, stop: you are measuring the delivery pipeline, not language support.
 
 > Confirm the `--json` flag and the JSON key names against the actual CLI before relying on
 > these commands. Adjust the commands, never the criteria.

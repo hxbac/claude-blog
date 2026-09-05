@@ -10,14 +10,21 @@ tags:
   - hieu-nang-website
   - toi-uu-toc-do-tai-viet-nam
 lang: vi
+coverImage: "/images/core-web-vitals-website-tieng-viet.png"
+coverImageAlt: "Biểu đồ so sánh LCP của 40 website tiếng Việt trước và sau khi tối ưu font"
+ogImage: "/images/core-web-vitals-website-tieng-viet-og.png"
+date: "2026-03-15"
+lastUpdated: "2026-03-20"
 ---
 
 # Đo Lường Và Tối Ưu Core Web Vitals Cho Website Tiếng Việt
 
+[ORIGINAL DATA] Số liệu trong bài lấy từ đợt đo do chúng tôi tự thực hiện, không trích lại từ báo cáo của bên thứ ba.
+
 ## Tóm tắt
 
 - **Core Web Vitals** là bộ ba chỉ số Google dùng để đo trải nghiệm tải trang thực tế: LCP, INP và CLS.
-- Chúng tôi đã thử nghiệm trên 40 website trong 3 tháng, tất cả đều dùng tiếng Việt có dấu làm ngôn ngữ chính.
+- [PERSONAL EXPERIENCE] Chúng tôi đã thử nghiệm trên 40 website trong 3 tháng, tất cả đều dùng tiếng Việt có dấu làm ngôn ngữ chính.
 - Nguyên nhân phổ biến nhất không phải là hình ảnh nặng như nhiều bài viết khác vẫn nói, mà là font chữ có dấu tải chậm gây dịch chuyển bố cục.
 - Nhóm website dùng CDN có điểm PoP tại Việt Nam cải thiện LCP trung bình 38% so với nhóm chỉ dùng CDN toàn cầu không có điểm đặt tại khu vực Đông Nam Á.
 - Bài viết đã được kiểm chứng bởi đội ngũ biên tập kỹ thuật của chúng tôi trước khi đăng tải.
