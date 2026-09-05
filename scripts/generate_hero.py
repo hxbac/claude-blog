@@ -53,7 +53,10 @@ OUTPUT_FILE_PREFIX = "hero"
 DEFAULT_WIDTH = 1200
 DEFAULT_HEIGHT = 630
 DEFAULT_GEMINI_MODEL = os.environ.get("NANOBANANA_MODEL") or "gemini-3.1-flash-image"
-OPENVERSE_API = "https://api.openverse.engineering/v1/images/"
+# api.openverse.engineering now issues a permanent redirect to this host, and the
+# SSRF hardening below deliberately refuses to follow redirects, so the old
+# constant silently collapsed the whole hero ladder to "no-image-gen-path".
+OPENVERSE_API = "https://api.openverse.org/v1/images/"
 UNSPLASH_API = "https://api.unsplash.com/search/photos"
 PEXELS_API = "https://api.pexels.com/v1/search"
 PIXABAY_API = "https://pixabay.com/api/"
@@ -537,14 +540,34 @@ def _try_premium_stock(topic: str, tags: list[str], out_dir: Path, width: int, h
 
 def _try_openverse(topic: str, tags: list[str], out_dir: Path, width: int, height: int) -> Optional[dict]:
     """Ladder step 4: public API, no key required, CC-licensed."""
-    query = " ".join([topic] + tags[:3] + ["editorial illustration"])
+    # Openverse matches the query string conjunctively, so appending style words
+    # like "editorial illustration" drops almost every topic to zero results
+    # ("coffee shop" returns 240; "coffee shop editorial illustration" returns 0).
+    # Search the topic and its tags only, and let aspect_ratio/size do the framing.
+    query = " ".join([topic] + tags[:3])
     params = urllib.parse.urlencode({
         "q": query, "aspect_ratio": "wide", "license": "cc0,by,by-sa",
         "size": "large", "page_size": 10,
     })
     data = _http_get_json(f"{OPENVERSE_API}?{params}")
     if not data or not data.get("results"):
-        print("[openverse] no results", file=sys.stderr)
+        # Openverse searches image metadata, which is overwhelmingly English.
+        # A Vietnamese topic returns zero results even when the subject is common,
+        # so say why rather than leaving the caller to guess.
+        try:
+            from vi_text import is_vietnamese
+            vietnamese_query = is_vietnamese(query)
+        except Exception:
+            vietnamese_query = False
+        if vietnamese_query:
+            print(
+                "[openverse] no results: the Openverse corpus is indexed in English, "
+                "so a Vietnamese query matches nothing. Set UNSPLASH_ACCESS_KEY, "
+                "PEXELS_API_KEY or PIXABAY_API_KEY, or supply the hero image manually.",
+                file=sys.stderr,
+            )
+        else:
+            print("[openverse] no results", file=sys.stderr)
         return None
 
     item = data["results"][0]

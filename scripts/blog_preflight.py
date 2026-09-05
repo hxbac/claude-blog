@@ -509,6 +509,9 @@ def gate_1_capability_discovery(draft_dir: Path, live_tools: list[str] | None = 
     # probe its reachability here (network HEAD at gate-1 time is too slow
     # and flaky); we report it as best-effort and let generate_hero.py
     # surface a runtime failure if Openverse is unreachable when invoked.
+    # Assumed, never probed. Gate 1 therefore passes on this alone while
+    # generate_hero.py can still fail later, surfacing as a missing hero at
+    # Gate 2 rather than as a capability problem here.
     openverse_assumed_available = True            # best-effort fallback
     image_gen_available = configured_image_paths or openverse_assumed_available
 

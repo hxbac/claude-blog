@@ -254,6 +254,10 @@ Write the full article following these rules:
 title: "[Clear title that identifies the page and matches search intent]"
 description: "[Accurate, page-specific summary of the visible content]"
 lang: "[ISO 639-1 code, e.g. en, tr, vi. Required: drives language-aware quality scoring]"
+slug: "[URL slug. Required: Gate 2 compares the rendered .html/.pdf stem against this.
+        Omit it and the stem is derived from the title instead, which will not match the
+        .md filename you chose. Vietnamese is transliterated: Hướng dẫn -> huong-dan]"
+canonical: "[Absolute canonical URL. Required: Gate 5 blocks without a rel=canonical link]"
 coverImage: "[URL from Pixabay/Unsplash/Pexels or generated SVG path]"
 coverImageAlt: "[Descriptive sentence about the cover image]"
 ogImage: "[Same as coverImage, or custom OG image URL]"
