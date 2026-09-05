@@ -224,6 +224,7 @@ Write the full article following these rules:
 ---
 title: "[Clear title that identifies the page and matches search intent]"
 description: "[Accurate, page-specific summary of the visible content]"
+lang: "[ISO 639-1 code, e.g. en, tr, vi. Required: drives language-aware quality scoring]"
 coverImage: "[URL from Pixabay/Unsplash/Pexels or generated SVG path]"
 coverImageAlt: "[Descriptive sentence about the cover image]"
 ogImage: "[Same as coverImage, or custom OG image URL]"

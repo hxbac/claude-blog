@@ -45,6 +45,11 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import vi_text  # noqa: E402
+from vi_profile import VI_PROFILE  # noqa: E402
+
 
 def _project_version() -> str:
     """Read the package version from pyproject.toml."""
@@ -175,6 +180,14 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             r'(?:\d|https?://|\[[^\]]+\]\(https?://)',
         ),
         'readability_model': 'flesch',
+        # Backfilled from the previously hardcoded regexes at analyze_ai_citation_readiness
+        # (entity_definitions) and the eeat trust check, so behavior for 'en' is unchanged.
+        'entity_definition_patterns': (
+            r'\*\*[^*]+\*\*\s*(?:is|are|refers to|means)',
+        ),
+        'editorial_patterns': (
+            r'(?i)\b(?:editorial|reviewed by|fact.?check|editor)\b',
+        ),
     },
     'tr': {
         'summary_labels': (r'özet', r'özetle', r'kısaca'),
@@ -198,7 +211,21 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             r'(?:\d|https?://|\[[^\]]+\]\(https?://)',
         ),
         'readability_model': 'atesman',
+        # Deliberately the same patterns as 'en', not translated Turkish. Turkish
+        # previously fell through to these exact hardcoded English regexes (see
+        # analyze_ai_citation_readiness and the eeat trust check before this
+        # change), so keeping them here is a true no-op for Turkish scoring.
+        # Proper Turkish entity_definition_patterns / editorial_patterns need a
+        # Turkish reader to author and review; that is a separate follow-up, not
+        # a guess shipped in this change.
+        'entity_definition_patterns': (
+            r'\*\*[^*]+\*\*\s*(?:is|are|refers to|means)',
+        ),
+        'editorial_patterns': (
+            r'(?i)\b(?:editorial|reviewed by|fact.?check|editor)\b',
+        ),
     },
+    'vi': VI_PROFILE,
 }
 
 
@@ -535,7 +562,13 @@ def _detect_language(frontmatter: dict[str, Any], body: str) -> str:
     ).strip().lower()
     if declared:
         primary = re.split(r'[-_]', declared, maxsplit=1)[0]
-        return primary if primary in LANGUAGE_PROFILES else 'en'
+        if primary in LANGUAGE_PROFILES:
+            return primary
+        # Declared but unsupported: fall through to heuristics rather than
+        # silently assuming English. The old code returned 'en' here.
+
+    if vi_text.is_vietnamese(body):
+        return 'vi'
 
     strong_turkish_markers = len(re.findall(r'[ığşİĞŞ]', body))
     letters = len(re.findall(r'[^\W\d_]', body, re.UNICODE))
@@ -861,7 +894,9 @@ def analyze_readability(text: str, language: str = 'en') -> dict[str, Any]:
     sentence_count = len(sentences) if sentences else 1
     avg_sentence_len = word_count / sentence_count
 
-    if LANGUAGE_PROFILES.get(language, LANGUAGE_PROFILES['en'])["readability_model"] == 'atesman':
+    profile = LANGUAGE_PROFILES.get(language, LANGUAGE_PROFILES['en'])
+
+    if profile["readability_model"] == 'atesman':
         vowel_count = sum(len(re.findall(r'[aeıioöuü]', word.lower())) for word in words)
         mean_syllables = vowel_count / max(word_count, 1)
         score = 198.825 - 40.175 * mean_syllables - 2.610 * avg_sentence_len
@@ -873,6 +908,34 @@ def analyze_readability(text: str, language: str = 'en') -> dict[str, Any]:
             'reading_time_minutes': round(word_count / 238, 1),
             'avg_sentence_length': round(avg_sentence_len, 1),
             'mean_syllables_per_word': round(mean_syllables, 2),
+            'estimated': False,
+        }
+
+    if profile["readability_model"] == 'vi_syllable':
+        # Vietnamese is monosyllabic: one syllable per whitespace token, so
+        # "syllables per word" carries no signal and Flesch is meaningless here.
+        # Sentence length and the tail of very long sentences do carry signal.
+        # This is a documented heuristic, not a published formula.
+        # Split on terminal punctuation OR a line break. Markdown headings, list
+        # items and table rows carry no full stop, so a punctuation-only split
+        # merges each one into the following sentence and inflates the average.
+        # Measured on the Vietnamese fixture: 27.1 syllables/sentence without the
+        # newline term, 22.8 with it.
+        sentences_text = [s for s in re.split(r'[.!?…]+|\n+', text)
+                          if vi_text.count_syllables(s) >= 2]
+        lengths = [vi_text.count_syllables(s) for s in sentences_text] or [0]
+        avg_syllables = sum(lengths) / len(lengths)
+        long_ratio = sum(1 for n in lengths if n > 30) / max(len(lengths), 1)
+        score = 100.0 - 3.0 * max(0.0, avg_syllables - 10) - 15.0 * long_ratio
+        score = max(0.0, min(100.0, score))
+        return {
+            'reading_model': 'vi_syllable',
+            'reading_ease': round(score, 1),
+            'vi_reading_ease': round(score, 1),
+            'reading_time_minutes': round(word_count / 200, 1),   # ~200 syl/min for vi
+            'avg_sentence_length': round(avg_syllables, 1),
+            'long_sentence_ratio': round(long_ratio, 3),
+            'sentence_count': len(lengths),
             'estimated': False,
         }
 
@@ -1252,6 +1315,9 @@ def analyze_ai_citation_readiness(content: str, headings_info: dict[str, Any],
         r'^##\s+(.+?)\s*$\n(.*?)(?=^##\s+|\Z)',
         re.MULTILINE | re.DOTALL,
     )
+    profile = LANGUAGE_PROFILES.get(language, LANGUAGE_PROFILES['en'])
+    entity_definition_patterns = profile['entity_definition_patterns']
+
     sections = section_pattern.findall(content)
     evidence_backed_sections = 0
     self_contained_sections = 0
@@ -1262,11 +1328,10 @@ def analyze_ai_citation_readiness(content: str, headings_info: dict[str, Any],
             section,
             re.IGNORECASE,
         ))
-        has_definition = bool(re.search(
-            r'\*\*[^*]+\*\*\s*(?:is|are|refers to|means)',
-            section,
-            re.IGNORECASE,
-        ))
+        has_definition = any(
+            re.search(pattern, section, re.IGNORECASE)
+            for pattern in entity_definition_patterns
+        )
         has_specific_support = bool(re.search(r'\b\d+(?:\.\d+)?%?\b', section))
         if has_source or has_evidence_marker:
             evidence_backed_sections += 1
@@ -1288,10 +1353,14 @@ def analyze_ai_citation_readiness(content: str, headings_info: dict[str, Any],
                     break
 
     # Entity clarity: detect defined terms (bold terms followed by explanations)
-    entity_definitions = len(re.findall(r'\*\*[^*]+\*\*\s*(?:is|are|refers to|means)', content))
+    # Case-sensitive, matching the historical 'en' regex exactly (no re.IGNORECASE)
+    # so English scoring is unaffected by this change.
+    entity_definitions = sum(
+        len(re.findall(pattern, content))
+        for pattern in entity_definition_patterns
+    )
 
     # Extraction-friendly structures
-    profile = LANGUAGE_PROFILES.get(language, LANGUAGE_PROFILES['en'])
     summary_pattern = '|'.join(profile['summary_labels'])
     has_tldr = bool(re.search(rf'(?i)(?:{summary_pattern})', content))
     table_count = len(re.findall(r'^\|.+\|$', content, re.MULTILINE))
@@ -1475,6 +1544,17 @@ def calculate_score(analysis: dict[str, Any]) -> dict[str, Any]:
         read_score = 5
     elif reading_model == 'atesman' and 0 <= reading_ease <= 100:
         read_score = 3
+    elif reading_model == 'vi_syllable' and reading_ease >= 70:
+        read_score = 7
+    elif reading_model == 'vi_syllable' and reading_ease >= 55:
+        read_score = 5
+    elif reading_model == 'vi_syllable' and reading_ease >= 40:
+        read_score = 3
+    elif reading_model == 'vi_syllable':
+        read_score = 1
+        issues.append({'category': 'content', 'severity': 'medium',
+                       'issue': f'Câu quá dài (trung bình {readability.get("avg_sentence_length")} '
+                                f'âm tiết/câu). Chia nhỏ các câu trên 30 âm tiết.'})
     elif 60 <= reading_ease <= 70:
         read_score = 7
     elif 55 <= reading_ease <= 75:
@@ -1482,6 +1562,9 @@ def calculate_score(analysis: dict[str, Any]) -> dict[str, Any]:
     elif 45 <= reading_ease <= 80:
         read_score = 3
     else:
+        # Reachable only by the flesch / flesch-estimate models: atesman and
+        # vi_syllable have their own dedicated branches above that cover their
+        # entire score range, so this catch-all never mislabels those models.
         read_score = 1
         issues.append({'category': 'content', 'severity': 'medium',
                        'issue': f'Flesch reading ease ({reading_ease}) outside acceptable range (55-75)'})
@@ -1748,7 +1831,8 @@ def calculate_score(analysis: dict[str, Any]) -> dict[str, Any]:
     if any(re.search(pattern, body, re.IGNORECASE)
            for pattern in profile['contact_patterns']):
         trust_score += 1
-    if re.search(r'(?i)\b(?:editorial|reviewed by|fact.?check|editor)\b', body):
+    if any(re.search(pattern, body, re.IGNORECASE)
+           for pattern in profile['editorial_patterns']):
         trust_score += 1
     trust_score = min(trust_score, 4)
     eeat += trust_score
@@ -2016,6 +2100,12 @@ def analyze_file(file_path: str) -> dict[str, Any]:
         content = _read_safely(path)
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         return {'error': f'Could not analyze {file_path}: {exc}'}
+    # Normalize to NFC once, at this single entry boundary, so every analyzer
+    # downstream sees consistent codepoints. Vietnamese content can arrive in
+    # NFD (macOS filesystems, some editors); NFD and NFC compare unequal even
+    # though they render identically, and the vi profile's patterns are
+    # written against NFC.
+    content = vi_text.normalize(content)
     if path.suffix.lower() == '.html':
         frontmatter, body = extract_html_for_analysis(content)
     else:
