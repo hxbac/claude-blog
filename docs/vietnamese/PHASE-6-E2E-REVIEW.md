@@ -21,8 +21,25 @@ git log --oneline -8                       # Phases 0-5 present
 ../.venv/bin/python -m pytest tests/ -q    # green apart from the documented baseline
 ```
 
-The plugin must be installed and loaded in Claude Code - a green test suite proves the
-Python works, not that the skill routes. Follow `docs/INSTALLATION.md`.
+### What this phase can and cannot exercise
+
+`claude-blog` is not installed into `~/.claude/` in this environment, so `/blog write` is not
+invokable as a slash command. Installing it would write into the user's home directory, which
+is beyond the scope of implementing these phases.
+
+So this phase drives **the same machinery the orchestrator drives**, directly:
+
+| Exercised | Not exercised |
+|---|---|
+| Writing a Vietnamese post against `skills/blog-write/SKILL.md` | The `/blog` orchestrator's routing |
+| `scripts/blog_render.py` (slug, HTML, PDF) | Automatic subagent dispatch |
+| `scripts/blog_preflight.py --gate 1..5` | The 3-attempt iteration loop firing on its own |
+| `scripts/analyze_blog.py` scoring under `vi` | |
+| `scripts/vi_prose.py` | |
+| A reviewer pass following `agents/blog-reviewer.md` | |
+
+Everything the six phases changed is in the left column. Say so plainly in the review; do not
+write it up as if `/blog write` ran end to end.
 
 ## 6.1 - The topic
 
@@ -43,12 +60,21 @@ Chosen deliberately:
 
 ## 6.2 - The run
 
-```
-/blog write Cách tối ưu Core Web Vitals cho website tiếng Việt
-```
+Work in a scratch directory outside the repository, for example
+`/tmp/vi-e2e/<slug>/`. Do not commit the draft.
 
-Nothing else. No hints, no "remember to use Vietnamese", no manual `lang: vi`. **If the
-system needs to be told, it is not fixed.**
+1. Read `skills/blog-write/SKILL.md` and follow it as the orchestrator would. Write the post
+   in Vietnamese. **Do not consult `tests/fixtures/blog_vi_good.md`** - reusing it would
+   test nothing.
+2. **Do not hand-write `lang: vi` unless the template you are following tells you to.** Phase 2
+   added that field to the template; whether it survives into the draft is part of what is
+   being tested. If detection has to be told, it is not fixed.
+3. Render: `python scripts/blog_render.py --md <draft>.md --out-dir <dir>`
+4. Run each gate: `python scripts/blog_preflight.py --draft <dir> --gate N --json`
+5. For Gate 4, read `agents/blog-reviewer.md` and apply it yourself, then cross-check against
+   `python scripts/analyze_blog.py <draft>.md --json`.
+6. If a gate fails, do exactly what the contract says the iteration loop would do, by hand,
+   and count the iterations.
 
 Record, at each gate:
 
