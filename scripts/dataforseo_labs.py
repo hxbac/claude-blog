@@ -116,16 +116,37 @@ def _get_credentials() -> tuple[str, str]:
 def _auth_header(username: str, password: str) -> dict[str, str]:
     """Build the HTTP Basic Auth header.
 
-    Called once per command, immediately before the first request, and
-    passed straight into requests.post/requests.get. The header, the
-    username, and the password are never logged, printed, or included in
-    any JSON this script emits.
+    Called once per rotation attempt, immediately before the first request
+    for that slot, and passed straight into requests.post/requests.get. The
+    header, the username, and the password are never logged, printed, or
+    included in any JSON this script emits.
     """
     token = base64.b64encode(f"{username}:{password}".encode()).decode()
     return {
         "Authorization": f"Basic {token}",
         "Content-Type": "application/json",
     }
+
+
+def _raise_on_task_status(payload: dict[str, Any]) -> None:
+    """Raise RotatableError for a rotatable DataForSEO task failure.
+
+    DataForSEO answers HTTP 200 even when the task itself failed; the real
+    status is tasks[0].status_code. 40100 to 40399 (auth, payment, quota) is
+    a credential problem and switches the caller to the next slot. 40400
+    (Invalid Path) and 40501 (Invalid Field) are bugs in the request, not
+    the credential, and must never rotate: rotating would swap a precise
+    diagnostic for a misleading "all keys failed" message. Anything else in
+    this dict has no "tasks" entry at all and is left for the existing
+    envelope-level check to report.
+    """
+    task = (payload.get("tasks") or [{}])[0]
+    status = task.get("status_code")
+    if not isinstance(status, int) or status < 40000:
+        return
+    message = str(task.get("status_message"))
+    if 40100 <= status < 40400:
+        raise env_file.RotatableError(f"task {status}: {message}")
 
 
 # ---------------------------------------------------------------------------
@@ -182,6 +203,7 @@ def _post_task(
     resp.raise_for_status()
     data = resp.json()
 
+    _raise_on_task_status(data)
     if data.get("status_code") != 20000:
         return {
             "error": "api_error",
@@ -295,13 +317,45 @@ def _normalize_intersection(item: dict[str, Any], targets: list[str]) -> dict[st
 
 
 # ---------------------------------------------------------------------------
+# Rotation
+# ---------------------------------------------------------------------------
+
+def _run_rotated(attempt) -> Optional[dict[str, Any]]:
+    """Run `attempt` through env_file.rotate("dataforseo", ...).
+
+    On CredentialsMissing, prints and returns the same structured payload
+    _get_credentials() has always produced, so a caller that already ran
+    that pre-check as a fast fail never sees a different shape here. On
+    AllSlotsFailed or a non-rotatable task-status RuntimeError, returns a
+    structured error dict instead of letting a raw exception traceback out.
+    Returns None only when the caller should keep going (it never does;
+    kept for symmetry with the rest of this module's Optional returns).
+    """
+    try:
+        return env_file.rotate("dataforseo", attempt)
+    except env_file.CredentialsMissing:
+        print(
+            "Error: set DATAFORSEO_USERNAME (or DATAFORSEO_LOGIN) and "
+            "DATAFORSEO_PASSWORD environment variables.",
+            file=sys.stderr,
+        )
+        return {
+            "error": "missing_credentials",
+            "message": "Set DATAFORSEO_USERNAME (or DATAFORSEO_LOGIN) and DATAFORSEO_PASSWORD.",
+        }
+    except env_file.AllSlotsFailed as exc:
+        return {"error": "all_slots_failed", "message": str(exc)}
+    except RuntimeError as exc:
+        return {"error": "api_error", "message": str(exc)}
+
+
+# ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
 
 def cmd_ranked_keywords(args: argparse.Namespace) -> None:
     """All keywords a single URL ranks for."""
-    username, password = _get_credentials()
-    headers = _auth_header(username, password)
+    _get_credentials()  # fast fail with the historical structured message
     _print_cost_estimate("ranked_keywords", item_count=1)
 
     payload: dict[str, Any] = {
@@ -315,21 +369,21 @@ def cmd_ranked_keywords(args: argparse.Namespace) -> None:
         normalized = vi_normalize(args.keyword_filter)
         payload["filters"] = [["keyword_data.keyword", "like", f"%{normalized}%"]]
 
-    post_resp = _post_task("ranked_keywords", [payload], headers)
-    if "error" in post_resp:
-        json.dump(post_resp, sys.stdout, indent=2)
-        return
-
-    task_id = _extract_task_id(post_resp)
-    if not task_id:
-        json.dump(
-            {"error": "no_task_id", "message": "No task ID in response."},
-            sys.stdout,
-            indent=2,
+    def attempt(slot: env_file.Slot) -> dict[str, Any]:
+        headers = _auth_header(
+            slot.values["DATAFORSEO_USERNAME"], slot.values["DATAFORSEO_PASSWORD"]
         )
-        return
+        post_resp = _post_task("ranked_keywords", [payload], headers)
+        if "error" in post_resp:
+            return post_resp
 
-    result_resp = _poll_results("ranked_keywords", task_id, headers)
+        task_id = _extract_task_id(post_resp)
+        if not task_id:
+            return {"error": "no_task_id", "message": "No task ID in response."}
+
+        return _poll_results("ranked_keywords", task_id, headers)
+
+    result_resp = _run_rotated(attempt)
     if "error" in result_resp:
         json.dump(result_resp, sys.stdout, indent=2)
         return
@@ -351,8 +405,7 @@ def cmd_ranked_keywords(args: argparse.Namespace) -> None:
 
 def cmd_page_intersection(args: argparse.Namespace) -> None:
     """Keywords where two or more URLs both rank."""
-    username, password = _get_credentials()
-    headers = _auth_header(username, password)
+    _get_credentials()  # fast fail with the historical structured message
     _print_cost_estimate("page_intersection", item_count=1)
 
     pages = {str(index): url for index, url in enumerate(args.urls, start=1)}
@@ -366,21 +419,21 @@ def cmd_page_intersection(args: argparse.Namespace) -> None:
         normalized = vi_normalize(args.keyword_filter)
         payload["filters"] = [["keyword_data.keyword", "like", f"%{normalized}%"]]
 
-    post_resp = _post_task("page_intersection", [payload], headers)
-    if "error" in post_resp:
-        json.dump(post_resp, sys.stdout, indent=2)
-        return
-
-    task_id = _extract_task_id(post_resp)
-    if not task_id:
-        json.dump(
-            {"error": "no_task_id", "message": "No task ID in response."},
-            sys.stdout,
-            indent=2,
+    def attempt(slot: env_file.Slot) -> dict[str, Any]:
+        headers = _auth_header(
+            slot.values["DATAFORSEO_USERNAME"], slot.values["DATAFORSEO_PASSWORD"]
         )
-        return
+        post_resp = _post_task("page_intersection", [payload], headers)
+        if "error" in post_resp:
+            return post_resp
 
-    result_resp = _poll_results("page_intersection", task_id, headers)
+        task_id = _extract_task_id(post_resp)
+        if not task_id:
+            return {"error": "no_task_id", "message": "No task ID in response."}
+
+        return _poll_results("page_intersection", task_id, headers)
+
+    result_resp = _run_rotated(attempt)
     if "error" in result_resp:
         json.dump(result_resp, sys.stdout, indent=2)
         return
