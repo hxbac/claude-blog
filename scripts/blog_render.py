@@ -257,6 +257,22 @@ def _sanitize_body_html(raw_html: str) -> str:
     return "".join(sanitizer.out)
 
 
+def _detect_hero_filename(out_dir: Path) -> str:
+    """Pick the hero asset that is actually on disk.
+
+    generate_hero.py names the file after the bytes it downloaded, so a Pexels
+    or Unsplash hero lands as hero.jpg while a Gemini one lands as hero.png.
+    Defaulting to hero.png regardless produced an <img src> pointing at a file
+    that was never written, which surfaced only as an ERR_FILE_NOT_FOUND
+    console error in Gate 3 rather than as a render failure.
+    """
+    for ext in ("png", "jpg", "jpeg", "webp"):
+        candidate = out_dir / f"hero.{ext}"
+        if candidate.is_file():
+            return candidate.name
+    return "hero.png"
+
+
 def _validate_hero_filename(name: str) -> str:
     if "/" in name or "\\" in name or Path(name).name != name:
         raise ValueError("hero filename must be a basename in the output directory")
@@ -669,7 +685,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--md", required=True, help="Path to markdown source file")
     parser.add_argument("--out-dir", required=True, help="Output directory for .html and .pdf")
-    parser.add_argument("--hero", default="hero.png", help="Hero image filename (relative to out-dir)")
+    parser.add_argument(
+        "--hero",
+        default=None,
+        help="Hero image filename (relative to out-dir). Autodetected when omitted.",
+    )
     parser.add_argument("--pdf-engine", choices=["auto", "playwright", "weasyprint", "none"], default="auto")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -688,8 +708,10 @@ def main() -> int:
     out_dir = raw_out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    hero_filename = args.hero if args.hero else _detect_hero_filename(out_dir)
+
     try:
-        html_path = _render_html(md_path, out_dir, args.hero)
+        html_path = _render_html(md_path, out_dir, hero_filename)
     except Exception as e:
         print(f"ERROR: html render failed: {e}", file=sys.stderr)
         return 1
