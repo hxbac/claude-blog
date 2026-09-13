@@ -30,6 +30,7 @@ main `blog` skill's references directory, not in `blog-write/`):
 - `skills/blog/references/internal-linking.md`: Linking strategy and anchor text rules
 - `skills/blog/references/visual-media.md`: Image sourcing and chart styling
 - `skills/blog-write/references/delivery.md`: delivery contract steps and summary template for this sub-skill
+- `skills/blog/references/ai-writing-tells-vi.md`: read before drafting Vietnamese; structural AI-writing patterns with Vietnamese before-and-after examples
 
 ## Workflow
 

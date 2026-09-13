@@ -18,7 +18,9 @@ Input JSON schema:
     [
       {
         "platform": "reddit" | "hackernews" | "x" | "youtube" | "devto" | "medium"
-                  | "github" | "stackoverflow" | "substack" | "web",
+                  | "github" | "stackoverflow" | "substack" | "web"
+                  | "tinhte" | "voz" | "webtretho" | "otofun" | "facebook"
+                  | "zalo" | "spiderum" | "vnexpress",
         "url": "https://...",
         "title": "Title as visible in SERP / source",
         "snippet": "Snippet text",
@@ -34,12 +36,15 @@ Usage:
     python3 discourse_research.py --input results.json --topic "topic" \\
         --format json     # prints JSON brief to stdout, no file output
     python3 discourse_research.py --input - --topic "topic" --days 90   # stdin
+    python3 discourse_research.py --input results.json --topic "chu de" \\
+        --lang vi          # Vietnamese theme-extraction stopwords (v1.11.0)
 
 Output JSON schema:
     {
       "topic": "...",
       "window_days": 30,
       "generated": "YYYY-MM-DD",
+      "lang": "en" | "vi",
       "platform_breakdown": { "reddit": N, "x": M, ... },
       "themes_new": [ { "theme": "...", "claim": "...", "sources": [...] } ],
       "themes_consensus": [ { "theme": "...", "claim": "...", "sources": [...] } ],
@@ -89,10 +94,31 @@ PLATFORM_LABELS = {
     "substack": "Substack",
     "bluesky": "Bluesky",
     "web": "Web",
+    # Vietnamese discourse platforms (Phase G, G6). Where Vietnamese
+    # discussion actually happens: Tinhte and VOZ (tech/general forums),
+    # Webtretho (parenting), Otofun (automotive), Facebook groups, Zalo
+    # groups, Spiderum (essays), and VnExpress article comments.
+    "tinhte": "Tinhte",
+    "voz": "VOZ",
+    "webtretho": "Webtretho",
+    "otofun": "Otofun",
+    "facebook": "Facebook (nhóm)",
+    "zalo": "Zalo",
+    "spiderum": "Spiderum",
+    "vnexpress": "VnExpress (bình luận)",
 }
 
-# Stopwords for theme keyword extraction
-STOPWORDS = {
+# Vietnamese-language platforms, used by --lang vi to order/prioritize the
+# platform set. Any platform key may still appear in input regardless of
+# --lang; this set only informs which platforms are "expected" for the
+# language and is not an allowlist.
+VI_PLATFORMS = {
+    "tinhte", "voz", "webtretho", "otofun", "facebook", "zalo", "spiderum",
+    "vnexpress",
+}
+
+# Stopwords for theme keyword extraction, English.
+STOPWORDS_EN = {
     "the", "a", "an", "and", "or", "but", "if", "in", "on", "at", "of", "for",
     "to", "with", "by", "as", "is", "are", "was", "were", "be", "been", "being",
     "this", "that", "these", "those", "it", "its", "they", "them", "their",
@@ -101,6 +127,29 @@ STOPWORDS = {
     "some", "such", "no", "not", "only", "own", "same", "so", "than", "too",
     "very", "can", "will", "just", "don", "should", "now", "about",
 }
+
+# Stopwords for theme keyword extraction, Vietnamese. Without this list,
+# extract_theme_keywords() would surface function words ("của", "không",
+# "trong") as if they were themes for every Vietnamese-language input,
+# which is exactly the class of bug this phase exists to close (see
+# docs/plan/PHASE-G-VIETNAMESE-PARITY.md, G6).
+STOPWORDS_VI = {
+    "và", "của", "là", "cho", "với", "các", "những", "một", "này", "đó",
+    "khi", "đã", "sẽ", "có", "không", "cũng", "thì", "mà", "để", "trong",
+    "trên", "dưới", "về", "như", "nên", "vì", "nếu", "hay", "hoặc", "rất",
+    "rằng", "nhưng", "được", "bị", "từ", "theo", "tại", "vào", "ra", "lên",
+    "xuống", "ai", "gì", "sao", "vậy", "thế", "đây", "đấy", "ấy", "nữa",
+    "còn", "chỉ", "phải", "làm", "sau", "trước", "giữa", "bằng", "qua",
+    "mỗi", "mọi", "cả", "tôi", "bạn", "chúng", "họ", "anh", "chị", "em",
+}
+
+# Backward-compatible alias: existing callers importing STOPWORDS directly
+# keep getting the English list (module default before --lang existed).
+STOPWORDS = STOPWORDS_EN
+
+
+def stopwords_for_lang(lang: str) -> set[str]:
+    return STOPWORDS_VI if lang == "vi" else STOPWORDS_EN
 
 EM_DASH_REPLACEMENTS = {
     "\u2014": " - ",   # unicode em-dash
@@ -420,12 +469,28 @@ def score_item(item: dict[str, Any], today: dt.date, window_days: int) -> float:
     return round(recency_score + engagement_score, 1)
 
 
-def extract_theme_keywords(text: str, topic_tokens: set[str], top_n: int = 5) -> list[str]:
-    """Extract candidate theme keywords from a title or snippet."""
-    words = re.findall(r"\b[A-Za-z][A-Za-z0-9\-]{2,}\b", text.lower())
+def extract_theme_keywords(
+    text: str, topic_tokens: set[str], top_n: int = 5, lang: str = "en"
+) -> list[str]:
+    """Extract candidate theme keywords from a title or snippet.
+
+    v1.11.0 (Phase G, G6): the word regex used to be `[A-Za-z][A-Za-z0-9-]{2,}`,
+    which silently drops every Vietnamese word carrying a diacritic (they are
+    not in A-Za-z), so a Vietnamese title extracted nothing at all beyond
+    stray ASCII/English tokens. `\\w` with Python's default Unicode string
+    matching covers Vietnamese letters too. The minimum length also drops
+    from 4 to 3 for `lang="vi"`: Vietnamese is analytic, and many real
+    content words are monosyllabic (`gia`, `xe`, `nha`), so a 4-char floor
+    would exclude them. The stopword list is selected via `lang` so those
+    same short, common words (`la`, `va`, `nay`) do not leak through as
+    themes; see `stopwords_for_lang()`.
+    """
+    stopwords = stopwords_for_lang(lang)
+    min_len = 3 if lang == "vi" else 4
+    words = re.findall(r"[^\W\d_]+(?:-[^\W\d_]+)*", text.lower(), re.UNICODE)
     candidates = [
         w for w in words
-        if w not in STOPWORDS and w not in topic_tokens and len(w) >= 4
+        if w not in stopwords and w not in topic_tokens and len(w) >= min_len
     ]
     seen = set()
     out = []
@@ -444,6 +509,7 @@ CLUSTER_MIN_SIZE_FOR_MULTI_KEYWORD = 2  # 2+ shared keywords required for groups
 def cluster_by_theme(
     items: list[dict[str, Any]],
     topic: str,
+    lang: str = "en",
 ) -> list[dict[str, Any]]:
     """Bucket items by shared keyword themes.
 
@@ -454,6 +520,10 @@ def cluster_by_theme(
     * Items with empty or duplicate URLs use synthetic per-index keys so
       keyword maps no longer collide (the v1.8.2 bug produced phantom
       cohesion for unscraped/syndicated items).
+
+    v1.11.0 (Phase G, G6): `lang` selects the stopword list and keyword
+    regex behavior used by `extract_theme_keywords()`, so a Vietnamese
+    input's themes are actual content words, not leftover function words.
     """
     topic_tokens = set(topic.lower().split())
     # item_key -> set of keywords for that specific item
@@ -471,7 +541,7 @@ def cluster_by_theme(
     seen_urls: set[str] = set()
     for idx, item in enumerate(items):
         text = f"{item.get('title', '')} {item.get('snippet', '')}"
-        kws = set(extract_theme_keywords(text, topic_tokens))
+        kws = set(extract_theme_keywords(text, topic_tokens, lang=lang))
         url = item.get("url") or ""
         if url and url not in seen_urls:
             seen_urls.add(url)
@@ -834,13 +904,16 @@ def build_brief(
     window_days: int,
     today: dt.date,
     decomposition: list[str] | None = None,
+    lang: str = "en",
 ) -> dict[str, Any]:
-    """Build the structured-JSON brief."""
+    """Build the structured-JSON brief. `lang` ("en" or "vi") selects the
+    theme-extraction stopword list (see `stopwords_for_lang()`); it does not
+    restrict which platforms may appear in the input."""
     for item in items:
         item["_score"] = score_item(item, today, window_days)
     items_sorted = sorted(items, key=lambda i: -i.get("_score", 0))
 
-    clusters = cluster_by_theme(items_sorted, topic)
+    clusters = cluster_by_theme(items_sorted, topic, lang=lang)
     buckets = classify_clusters(clusters, today, window_days)
     markdown = render_markdown(topic, window_days, today, buckets, items_sorted, decomposition)
 
@@ -862,6 +935,7 @@ def build_brief(
         "topic": topic,
         "window_days": window_days,
         "generated": today.isoformat(),
+        "lang": lang,
         "source_count": len(items_sorted),
         "platform_breakdown": dict(platform_breakdown),
         "themes_new": [cluster_summary(c) for c in buckets["new"]],
@@ -885,6 +959,11 @@ def main() -> int:
     parser.add_argument(
         "--decomposition", default=None,
         help="Optional path to a newline-delimited file of decomposition questions",
+    )
+    parser.add_argument(
+        "--lang", choices=["en", "vi"], default="en",
+        help="Language profile (default en). Selects the theme-extraction "
+             "stopword list; does not restrict which platforms may appear.",
     )
     args = parser.parse_args()
 
@@ -919,7 +998,7 @@ def main() -> int:
         except (FileNotFoundError, ValueError) as e:
             print(f"Warning: {e}; proceeding without decomposition.", file=sys.stderr)
 
-    brief = build_brief(items, args.topic, args.days, dt.date.today(), decomposition)
+    brief = build_brief(items, args.topic, args.days, dt.date.today(), decomposition, lang=args.lang)
 
     if args.output:
         try:

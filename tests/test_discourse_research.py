@@ -389,5 +389,90 @@ def test_duplicate_urls_do_not_collide_in_cluster_index() -> None:
         )
 
 
+# ---------------------------------------------------------------------------
+# G6 (Phase G): Vietnamese platforms + --lang stopword/regex selection
+# ---------------------------------------------------------------------------
+
+
+def test_vietnamese_platforms_present_in_labels() -> None:
+    mod = _import_module()
+    for key in ("tinhte", "voz", "webtretho", "otofun", "facebook", "zalo",
+                "spiderum", "vnexpress"):
+        assert key in mod.PLATFORM_LABELS, f"{key} missing from PLATFORM_LABELS"
+        assert mod.PLATFORM_LABELS[key], f"{key} has an empty label"
+
+
+def test_lang_vi_selects_vietnamese_stopwords() -> None:
+    mod = _import_module()
+    assert mod.stopwords_for_lang("vi") is mod.STOPWORDS_VI
+    assert mod.stopwords_for_lang("en") is mod.STOPWORDS_EN
+    assert "của" in mod.STOPWORDS_VI
+    assert "không" in mod.STOPWORDS_VI
+
+
+def test_extract_theme_keywords_drops_vietnamese_function_words() -> None:
+    """Before the G6 fix, STOPWORDS was English-only AND the keyword regex
+    was ASCII-only, so a diacritic-bearing Vietnamese function word like
+    'khong' (khong) would slip through ungoverned. With lang='vi' it must be
+    filtered like any other stopword."""
+    mod = _import_module()
+    text = "Xe máy điện không phải là lựa chọn của mọi gia đình hiện nay"
+    keywords = mod.extract_theme_keywords(text, set(), lang="vi")
+    for stopword in ("không", "của", "là", "mọi"):
+        assert stopword not in keywords
+
+
+def test_extract_theme_keywords_finds_diacritic_content_words() -> None:
+    """The old `[A-Za-z][A-Za-z0-9-]{2,}` regex could not match any
+    Vietnamese diacritic letter, so Vietnamese theme extraction returned
+    nothing but stray ASCII tokens. Unicode-aware matching fixes that."""
+    mod = _import_module()
+    text = "Pin xe máy điện giảm nhanh sau một năm sử dụng thực tế"
+    keywords = mod.extract_theme_keywords(text, set(), lang="vi")
+    assert any("điện" in kw or "giảm" in kw or "dụng" in kw for kw in keywords), keywords
+
+
+def test_cli_lang_vi_end_to_end(tmp_path: Path) -> None:
+    results = [
+        {
+            "platform": "tinhte",
+            "url": "https://tinhte.vn/t/1",
+            "title": "Đánh giá pin xe máy điện năm 2026",
+            "snippet": "Nhiều người dùng phản ánh pin xe máy điện giảm nhanh sau một năm sử dụng",
+            "date": dt.date.today().isoformat(),
+            "engagement_proxy": "50 upvotes",
+        },
+        {
+            "platform": "voz",
+            "url": "https://voz.vn/t/2",
+            "title": "Trải nghiệm pin xe máy điện sau sáu tháng",
+            "snippet": "Pin xe máy điện cần bảo dưỡng định kỳ để giữ độ bền lâu dài",
+            "date": dt.date.today().isoformat(),
+            "engagement_proxy": "30 upvotes",
+        },
+    ]
+    input_path = tmp_path / "results.json"
+    input_path.write_text(json.dumps(results, ensure_ascii=False), encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--input", str(input_path),
+         "--topic", "xe máy điện", "--lang", "vi", "--format", "json"],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    brief = json.loads(result.stdout)
+    assert brief["lang"] == "vi"
+    assert brief["platform_breakdown"].get("tinhte") == 1
+    assert brief["platform_breakdown"].get("voz") == 1
+    assert "Tinhte" in brief["markdown"]
+    assert "VOZ" in brief["markdown"]
+
+
+def test_default_lang_is_english_and_unchanged() -> None:
+    """An English brief must not change behavior when --lang is omitted."""
+    mod = _import_module()
+    keywords = mod.extract_theme_keywords("the quick brown fox jumps sometimes", set())
+    assert "the" not in keywords
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

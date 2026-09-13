@@ -6,7 +6,7 @@ This repository contains **Claude Blog**, a Tier 4 Claude Code skill for blog co
 creation, optimization, and management. It follows the Agent Skills open standard and the
 3-layer architecture (directive, orchestration, execution). 32 skill directories
 (1 orchestrator + 31 sub-skills), 30 user-facing `/blog` commands, 5 specialized
-subagents, 12 content templates, and 22 reference docs are dual-optimized for Google rankings
+subagents, 12 content templates, and 24 reference docs are dual-optimized for Google rankings
 (2026 core and spam update timeline, E-E-A-T) and AI citations (GEO/AEO). Includes FLOW framework
 integration, semantic topic-cluster planning + execution, multilingual publishing (Pro Hub
 Challenge v1.7.0), BRAND.md/VOICE.md/DISCOURSE.md project-root context auto-load (v1.8.0,

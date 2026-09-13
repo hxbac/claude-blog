@@ -94,4 +94,126 @@ VI_PROFILE: dict[str, Any] = {
         r'(?:người|ban)\s+(?:biên\s+tập|duyệt)',
         r'cố\s+vấn\s+(?:chuyên\s+môn|nội\s+dung)',
     ),
+
+    # ------------------------------------------------------------------
+    # G1 (Phase G): word lists moved into the profile system so a new
+    # language cannot repeat the mistake of hardcoded English defaults
+    # silently scoring zero on every non-English post. See
+    # skills/blog/references/vi-word-list-tiering.md for the bar an entry
+    # must clear to belong in the scored tiers below versus the advisory
+    # tier: a phrase a careful Vietnamese writer would rarely choose on
+    # purpose, not merely a common formal phrase.
+    #
+    # Scored: counted into ai_trigger_words / per_1k and ai_phrase_count,
+    # the same way the English lists are scored.
+    'ai_phrases': (
+        'trong thời đại số hóa',
+        'không thể phủ nhận rằng',
+        'đóng vai trò vô cùng quan trọng',
+        'mang lại nhiều lợi ích thiết thực',
+        'giúp bạn dễ dàng hơn bao giờ hết',
+        'hy vọng bài viết đã mang đến',
+        'hy vọng bài viết này đã giúp',
+        'chúc bạn thành công',
+        'điều này cho thấy rằng',
+        'có thể nói rằng',
+        'một trong những yếu tố quan trọng nhất',
+        'với sự phát triển mạnh mẽ của',
+        'đáp ứng nhu cầu ngày càng cao',
+        'không có gì ngạc nhiên khi',
+        'hãy cùng tìm hiểu',
+        'bài viết này sẽ giúp bạn',
+        'hy vọng những chia sẻ trên',
+    ),
+    'ai_trigger_words': (
+        'vô cùng quan trọng',
+        'đóng vai trò quan trọng',
+        'không thể phủ nhận',
+        'dễ dàng hơn bao giờ hết',
+        'vai trò then chốt',
+        'một cách toàn diện',
+        'hết sức quan trọng',
+        'chìa khóa thành công',
+        'bước tiến quan trọng',
+        'yếu tố then chốt',
+        'xu hướng tất yếu',
+        'không ngừng phát triển',
+        'đóng góp to lớn',
+        'vai trò không thể thay thế',
+        'giải pháp tối ưu',
+        'trải nghiệm tuyệt vời',
+        'bước ngoặt quan trọng',
+        'tiềm năng to lớn',
+        'giá trị to lớn',
+        'cột mốc quan trọng',
+    ),
+    'transition_words': (
+        'tuy nhiên', 'do đó', 'vì vậy', 'ngoài ra', 'bên cạnh đó',
+        'mặt khác', 'nói cách khác', 'chẳng hạn', 'ví dụ', 'kết quả là',
+        'cụ thể là', 'đặc biệt là', 'tóm lại', 'nhìn chung', 'thực tế',
+        'tuy vậy', 'hơn nữa', 'trong khi đó', 'ngược lại', 'vì thế',
+        'do vậy', 'trước hết', 'cuối cùng', 'thứ nhất', 'thứ hai',
+        'thứ ba',
+    ),
+    # Advisory only: reported for awareness, never summed into the scored
+    # trigger_count / per_1k or the ai_phrase_count. These read as ordinary
+    # formal Vietnamese at least as often as they read as an AI tell, so
+    # scoring them would train writers to avoid normal prose.
+    'ai_advisory_phrases': (
+        'đã và đang',
+        'trong bối cảnh hiện nay',
+        'vai trò quan trọng',
+        'ngày càng phổ biến',
+        'ngày càng tăng',
+        'không thể thiếu',
+        'hiệu quả cao',
+        'chất lượng cao',
+        'nhu cầu ngày càng cao',
+        'xu hướng phát triển',
+    ),
+
+    # ------------------------------------------------------------------
+    # G2 (Phase G): Vietnamese marks passive voice with a preverbal marker
+    # ("bị" negative connotation, "được" neutral or positive), not with an
+    # auxiliary + participle like English. Both markers are also ordinary
+    # main verbs ("được" can mean "to get/receive", "bị" "to undergo"), so a
+    # bare marker match overcounts (example: "bị bệnh", to get sick, where
+    # "bệnh" is a noun, not a verb). Requiring the marker be followed by a
+    # verb from this list, optionally after one adverb, rules that class of
+    # false positive out.
+    #
+    # Known, accepted over-count: this does not and cannot without a parser
+    # distinguish a true patient-subject passive ("được công nhận", is
+    # recognized) from a benefactive or permissive reading of the identical
+    # surface form ("được nghỉ", gets to rest). Both are counted; treating
+    # them alike mirrors how English "get"-passives are usually counted with
+    # "be"-passives rather than excluded.
+    'passive_verbs': (
+        'công nhận', 'sử dụng', 'phê duyệt', 'phê chuẩn', 'chấp nhận',
+        'chấp thuận', 'phát hiện', 'xác nhận', 'xác định', 'đánh giá',
+        'xử lý', 'giải quyết', 'kiểm duyệt', 'phân phối', 'sản xuất',
+        'thiết kế', 'phát triển', 'triển khai', 'áp dụng', 'ban hành',
+        'khuyến khích', 'yêu cầu', 'kiểm tra', 'kiểm soát', 'quản lý',
+        'giám sát', 'tổ chức', 'thực hiện', 'xây dựng', 'ghi nhận',
+        'đề cập', 'đề xuất', 'giới thiệu', 'công bố', 'cung cấp',
+        'hỗ trợ', 'bảo vệ', 'cải thiện', 'cải tiến', 'nâng cấp',
+        'cập nhật', 'tuyển dụng', 'bổ nhiệm', 'lựa chọn', 'mời',
+        'xếp hạng', 'công khai', 'tiết lộ', 'xuất bản', 'biên tập',
+        'kiểm chứng', 'thẩm định', 'khen ngợi', 'vinh danh', 'trao tặng',
+        'xử phạt', 'sa thải', 'từ chối', 'ảnh hưởng', 'tác động',
+        'tấn công', 'đe dọa', 'bắt giữ', 'truy tố', 'kết án',
+        'mua', 'bán', 'ưa chuộng', 'yêu thích',
+        # Phase G review: the original 69 verb list missed common commerce
+        # and logistics verbs, so a Vietnamese shipping post reported far
+        # fewer passives than it contained. Metric is descriptive only, but
+        # a wrong number shown to a writer is still a wrong number.
+        "trả", "trả lại", "hoàn", "hoàn trả", "giao", "giao hàng", "gửi", "nhận", "tính", "tính toán", "thanh toán", "đặt", "đặt hàng", "duyệt", "phê duyệt", "xử lý", "vận chuyển", "đóng gói", "niêm yết", "chiết khấu", "hủy", "thu", "thu hộ", "bồi thường", "ghi nhận", "thống kê", "phân loại", "chuyển", "chuyển khoản", "lưu", "lưu trữ", "sắp xếp", "ưu tiên",
+    ),
+    # A single optional adverb may sit between the marker and the verb
+    # ("đã", "đang được công nhận"). More than one adverb, or an adverb the
+    # list omits, is a documented miss, not a crash: the marker is still
+    # reported if it appears elsewhere in the sentence unadorned.
+    'passive_adverbs': (
+        'đã', 'sẽ', 'đang', 'cũng', 'vẫn', 'còn', 'luôn', 'thường', 'mới',
+    ),
 }

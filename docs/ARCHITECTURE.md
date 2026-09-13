@@ -34,7 +34,7 @@ The Claude Blog Brain is vendored at `./brain` as a self-contained, evidence-gat
 |  1 orchestrator + 31       |            |  skills/blog/references/*.md     |
 |  sub-skills                |            |  skills/blog/templates/*.md      |
 |  write    rewrite          |            |                           |
-|  analyze  brief            |            |  22 references loaded     |
+|  analyze  brief            |            |  24 references loaded     |
 |  calendar strategy         |            |  on demand (RAG pattern)  |
 |  outline  seo-check        |            |  12 content templates     |
 |  schema   repurpose        |            +---------------------------+
@@ -159,12 +159,12 @@ and `agents/blog-translator.md`).
 Agents are defined as markdown files with YAML frontmatter specifying their
 name, description, and available tools.
 
-### 4. Reference Files (22)
+### 4. Reference Files (24)
 
 **Location**: `skills/blog/references/*.md`
 
 Knowledge documents loaded on demand (RAG-style; not preloaded into context).
-22 references in `skills/blog/references/` cover SEO landscape, GEO/AEO,
+24 references in `skills/blog/references/` cover SEO landscape, GEO/AEO,
 content rules, visual media, schema, E-E-A-T, platform guides, distribution,
 internal linking, FLOW prompts, video embeds, AI-slop detection, editorial
 heuristics, cognitive load, research quality, synthesis contract, and the
@@ -507,7 +507,7 @@ After installation, `claude-blog` occupies this structure inside `~/.claude/`:
 
 **Component counts (v2.2.0)**: 32 skill directories (1 orchestrator + 31
 sub-skills); 30 user-facing commands, 5 agents (blog-researcher, blog-writer, blog-seo, blog-reviewer,
-blog-translator), 22 references in `skills/blog/references/` (plus per-sub-skill
+blog-translator), 24 references in `skills/blog/references/` (plus per-sub-skill
 references and 30 synced FLOW prompts under `skills/blog-flow/references/`),
 12 content templates, 17 root-level scripts (`scripts/analyze_blog.py`,
 `ai_citation_score.py`, `blog_hygiene.py`, `blog_preflight.py`,

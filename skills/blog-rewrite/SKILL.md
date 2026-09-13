@@ -27,6 +27,7 @@ and AI citation platforms. Preserves the author's voice while applying the
 - `skills/blog/references/visual-media.md` - Image sourcing and chart styling
 - `skills/blog/references/synthesis-contract.md` - 6 LAWs for re-citation hygiene during rewrite (v1.8.0; cross-skill ref lives in the orchestrator's references dir)
 - `skills/blog/references/research-quality.md` - cross-source clustering for replacement-statistic research (v1.8.0)
+- `skills/blog/references/ai-writing-tells-vi.md` - read before rewriting Vietnamese content; structural AI-writing patterns with Vietnamese before-and-after examples
 
 ## Cross-reference
 

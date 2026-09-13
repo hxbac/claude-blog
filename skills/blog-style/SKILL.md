@@ -14,6 +14,10 @@ VOICE.md, blog-persona, and blog-write. The profile captures measurable style
 signals so future drafts can preserve the author's cadence, vocabulary, and
 tone.
 
+See `skills/blog/references/ai-writing-tells-vi.md` before learning or applying
+a voice profile for Vietnamese content; it holds structural AI-writing
+patterns with Vietnamese before-and-after examples.
+
 ## Commands
 
 | Command | Purpose |
