@@ -229,6 +229,24 @@ Trust encompasses and validates all other signals.
 | HTTPS | Critical | Non-negotiable baseline |
 | Clear ownership | High | Who publishes this site and why |
 
+### Vietnamese-Market Trust Signals
+
+Scoped to Vietnam only; none of these have an English-market equivalent in
+the tables above. Writer guidance, not a scored rule: `scripts/analyze_blog.py`
+does not check for these, and adding them to the scorer would need its own
+false-positive analysis (a non-commercial personal blog has no MST to show).
+
+| Signal | What it is | Why it matters |
+|--------|------------|-----------------|
+| MST / ma so thue (mã số thuế) | Tax identification number | Standard proof of a registered business |
+| Bo Cong Thuong (Bộ Công Thương) | Ministry of Industry and Trade registration badge | Legally required for e-commerce sites; its absence is conspicuous |
+| Nghi dinh 13/2023/ND-CP (Nghị định 13/2023/NĐ-CP) | Personal data protection decree | The Vietnamese equivalent of a GDPR reference in a privacy policy |
+| Dia chi + hotline (Địa chỉ + hotline) | Physical address and phone number | Vietnamese readers expect both; an email-only contact reads as unserious |
+
+Apply these only to commercial or e-commerce Vietnamese sites. A personal blog
+or a non-commercial informational post has no MST to display and should not
+be marked down for lacking one.
+
 ### Content-Level Trust Signals
 
 | Signal | Implementation |

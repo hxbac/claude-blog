@@ -6,6 +6,7 @@ description: >
   against Google requirements and warns about deprecated types. Use when user
   says "schema", "blog schema", "json-ld", "structured data", "schema markup",
   "generate schema".
+  Also use when the request is written in Vietnamese, for example "schema", "dữ liệu có cấu trúc", "JSON-LD", "đánh dấu bài viết".
 user-invokable: true
 argument-hint: "<file-path>"
 license: MIT

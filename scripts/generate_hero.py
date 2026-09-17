@@ -33,10 +33,18 @@ import re
 import socket
 import sys
 import tempfile
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Callable, Optional
+
+# Credentials come from a .env file so they never have to be typed on a command
+# line. See scripts/env_file.py for the search order.
+_ENV_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if _ENV_SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _ENV_SCRIPT_DIR)
+import env_file  # noqa: E402,F401
 
 
 def _project_version() -> str:
@@ -53,7 +61,10 @@ OUTPUT_FILE_PREFIX = "hero"
 DEFAULT_WIDTH = 1200
 DEFAULT_HEIGHT = 630
 DEFAULT_GEMINI_MODEL = os.environ.get("NANOBANANA_MODEL") or "gemini-3.1-flash-image"
-OPENVERSE_API = "https://api.openverse.engineering/v1/images/"
+# api.openverse.engineering now issues a permanent redirect to this host, and the
+# SSRF hardening below deliberately refuses to follow redirects, so the old
+# constant silently collapsed the whole hero ladder to "no-image-gen-path".
+OPENVERSE_API = "https://api.openverse.org/v1/images/"
 UNSPLASH_API = "https://api.unsplash.com/search/photos"
 PEXELS_API = "https://api.pexels.com/v1/search"
 PIXABAY_API = "https://pixabay.com/api/"
@@ -313,7 +324,13 @@ def _build_prompt(topic: str, tags: list[str], width: int, height: int) -> str:
     return " ".join(parts)
 
 
-def _http_get(url: str, headers: Optional[dict] = None, timeout: int = HTTP_TIMEOUT) -> Optional[bytes]:
+def _http_get(
+    url: str,
+    headers: Optional[dict] = None,
+    timeout: int = HTTP_TIMEOUT,
+    *,
+    rotatable_status: tuple = (),
+) -> Optional[bytes]:
     """Fetch URL with SSRF guards (VULN-801, v1.9.1).
 
     Refuses:
@@ -321,6 +338,14 @@ def _http_get(url: str, headers: Optional[dict] = None, timeout: int = HTTP_TIME
       * hosts resolving to RFC1918 / loopback / link-local / ULA / reserved
       * responses larger than MAX_IMAGE_BYTES
       * automatic redirect-following (no-redirect opener; redirects return None)
+
+    `rotatable_status` names HTTP status codes that should be raised as
+    urllib.error.HTTPError instead of swallowed to None. A premium stock
+    caller passes env_file.ROTATABLE_HTTP_STATUS here so a rejected key
+    (401/403/429, ...) can be classified by env_file.rotate() and switched
+    to the next slot; everything else keeps the old behaviour of printing a
+    message and returning None, since a non-auth failure (a 500, a timeout,
+    a DNS error) is never a reason to burn through credential slots.
     """
     ok, reason, host, port, infos = _resolve_public_url(url)
     if not ok or host is None or port is None:
@@ -343,6 +368,11 @@ def _http_get(url: str, headers: Optional[dict] = None, timeout: int = HTTP_TIME
                     )
                     return None
                 return data
+    except urllib.error.HTTPError as e:
+        print(f"[http] {_url_for_log(url)}: {e}", file=sys.stderr)
+        if e.code in rotatable_status:
+            raise
+        return None
     except Exception as e:
         print(f"[http] {_url_for_log(url)}: {e}", file=sys.stderr)
         return None
@@ -358,8 +388,10 @@ def _download_image(url: str) -> Optional[bytes]:
     return data
 
 
-def _http_get_json(url: str, headers: Optional[dict] = None) -> Optional[dict]:
-    raw = _http_get(url, headers=headers)
+def _http_get_json(
+    url: str, headers: Optional[dict] = None, *, rotatable_status: tuple = ()
+) -> Optional[dict]:
+    raw = _http_get(url, headers=headers, rotatable_status=rotatable_status)
     if raw is None:
         return None
     try:
@@ -426,103 +458,137 @@ def _try_gemini(topic: str, tags: list[str], out_dir: Path, width: int, height: 
     return {"source": "gemini", "model": used_model, "path": str(hero_path)}
 
 
-def _try_unsplash(query: str, out_dir: Path, width: int, height: int) -> Optional[dict]:
-    key = os.environ.get("UNSPLASH_ACCESS_KEY")
-    if not key:
-        return None
-    params = urllib.parse.urlencode({
-        "query": query, "orientation": "landscape", "content_filter": "high", "per_page": 10,
-    })
-    data = _http_get_json(f"{UNSPLASH_API}?{params}", headers={"Authorization": f"Client-ID {key}"})
-    if not data or not data.get("results"):
-        return None
-    item = data["results"][0]
-    img_url = item.get("urls", {}).get("regular")
-    if not img_url:
-        return None
-    img_bytes = _download_image(img_url)
-    if not img_bytes:
-        return None
+def _run_rotated_source(group: str, attempt) -> Optional[dict]:
+    """Run one premium-stock rung through env_file.rotate, key by key.
+
+    Unsplash, Pexels, and Pixabay are a ladder of different services, not
+    slots of one credential (see _try_premium_stock); this only rotates
+    *within* one rung, across UNSPLASH_ACCESS_KEY, UNSPLASH_ACCESS_KEY_2,
+    and so on, before that rung gives up and the ladder moves to the next
+    service. No key configured, or every configured key rejected, both mean
+    "this rung has nothing to offer" to the caller, so both return None and
+    let the ladder continue rather than raising.
+    """
     try:
-        img_bytes = _fit_image_bytes(img_bytes, width, height)
-    except RuntimeError as e:
-        print(f"[image] {e}", file=sys.stderr)
+        return env_file.rotate(group, attempt)
+    except (env_file.CredentialsMissing, env_file.AllSlotsFailed):
         return None
-    hero_path = out_dir / f"{OUTPUT_FILE_PREFIX}{_image_ext(img_bytes)}"
-    _atomic_write_bytes(hero_path, img_bytes)
-    user = item.get("user", {})
-    credit = (
-        f'Photo by {user.get("name", "Unsplash contributor")} on Unsplash\n'
-        f'License: Unsplash License (free for commercial use, no attribution required but appreciated)\n'
-        f'Source: {item.get("links", {}).get("html", img_url)}\n'
-    )
-    _atomic_write_text(out_dir / "hero-credit.txt", credit)
-    return {"source": "unsplash", "path": str(hero_path)}
+
+
+def _try_unsplash(query: str, out_dir: Path, width: int, height: int) -> Optional[dict]:
+    def attempt(slot: env_file.Slot) -> Optional[dict]:
+        key = slot.values["UNSPLASH_ACCESS_KEY"]
+        params = urllib.parse.urlencode({
+            "query": query, "orientation": "landscape", "content_filter": "high", "per_page": 10,
+        })
+        data = _http_get_json(
+            f"{UNSPLASH_API}?{params}",
+            headers={"Authorization": f"Client-ID {key}"},
+            rotatable_status=env_file.ROTATABLE_HTTP_STATUS,
+        )
+        if not data or not data.get("results"):
+            return None
+        item = data["results"][0]
+        img_url = item.get("urls", {}).get("regular")
+        if not img_url:
+            return None
+        img_bytes = _download_image(img_url)
+        if not img_bytes:
+            return None
+        try:
+            img_bytes = _fit_image_bytes(img_bytes, width, height)
+        except RuntimeError as e:
+            # Not a credential problem (e.g. Pillow missing): fail this rung
+            # quietly rather than let rotate() blame the key.
+            print(f"[image] {e}", file=sys.stderr)
+            return None
+        hero_path = out_dir / f"{OUTPUT_FILE_PREFIX}{_image_ext(img_bytes)}"
+        _atomic_write_bytes(hero_path, img_bytes)
+        user = item.get("user", {})
+        credit = (
+            f'Photo by {user.get("name", "Unsplash contributor")} on Unsplash\n'
+            f'License: Unsplash License (free for commercial use, no attribution required but appreciated)\n'
+            f'Source: {item.get("links", {}).get("html", img_url)}\n'
+        )
+        _atomic_write_text(out_dir / "hero-credit.txt", credit)
+        return {"source": "unsplash", "path": str(hero_path)}
+
+    return _run_rotated_source("unsplash", attempt)
 
 
 def _try_pexels(query: str, out_dir: Path, width: int, height: int) -> Optional[dict]:
-    key = os.environ.get("PEXELS_API_KEY")
-    if not key:
-        return None
-    params = urllib.parse.urlencode({"query": query, "orientation": "landscape", "per_page": 10})
-    data = _http_get_json(f"{PEXELS_API}?{params}", headers={"Authorization": key})
-    if not data or not data.get("photos"):
-        return None
-    item = data["photos"][0]
-    img_url = item.get("src", {}).get("large2x") or item.get("src", {}).get("large")
-    if not img_url:
-        return None
-    img_bytes = _download_image(img_url)
-    if not img_bytes:
-        return None
-    try:
-        img_bytes = _fit_image_bytes(img_bytes, width, height)
-    except RuntimeError as e:
-        print(f"[image] {e}", file=sys.stderr)
-        return None
-    hero_path = out_dir / f"{OUTPUT_FILE_PREFIX}{_image_ext(img_bytes)}"
-    _atomic_write_bytes(hero_path, img_bytes)
-    credit = (
-        f'Photo by {item.get("photographer", "Pexels contributor")} on Pexels\n'
-        f'License: Pexels License (free for commercial use)\n'
-        f'Source: {item.get("url", img_url)}\n'
-    )
-    _atomic_write_text(out_dir / "hero-credit.txt", credit)
-    return {"source": "pexels", "path": str(hero_path)}
+    def attempt(slot: env_file.Slot) -> Optional[dict]:
+        key = slot.values["PEXELS_API_KEY"]
+        params = urllib.parse.urlencode({"query": query, "orientation": "landscape", "per_page": 10})
+        data = _http_get_json(
+            f"{PEXELS_API}?{params}",
+            headers={"Authorization": key},
+            rotatable_status=env_file.ROTATABLE_HTTP_STATUS,
+        )
+        if not data or not data.get("photos"):
+            return None
+        item = data["photos"][0]
+        img_url = item.get("src", {}).get("large2x") or item.get("src", {}).get("large")
+        if not img_url:
+            return None
+        img_bytes = _download_image(img_url)
+        if not img_bytes:
+            return None
+        try:
+            img_bytes = _fit_image_bytes(img_bytes, width, height)
+        except RuntimeError as e:
+            # Not a credential problem (e.g. Pillow missing): fail this rung
+            # quietly rather than let rotate() blame the key.
+            print(f"[image] {e}", file=sys.stderr)
+            return None
+        hero_path = out_dir / f"{OUTPUT_FILE_PREFIX}{_image_ext(img_bytes)}"
+        _atomic_write_bytes(hero_path, img_bytes)
+        credit = (
+            f'Photo by {item.get("photographer", "Pexels contributor")} on Pexels\n'
+            f'License: Pexels License (free for commercial use)\n'
+            f'Source: {item.get("url", img_url)}\n'
+        )
+        _atomic_write_text(out_dir / "hero-credit.txt", credit)
+        return {"source": "pexels", "path": str(hero_path)}
+
+    return _run_rotated_source("pexels", attempt)
 
 
 def _try_pixabay(query: str, out_dir: Path, width: int, height: int) -> Optional[dict]:
-    key = os.environ.get("PIXABAY_API_KEY")
-    if not key:
-        return None
-    params = urllib.parse.urlencode({
-        "key": key, "q": query, "orientation": "horizontal",
-        "image_type": "photo", "safesearch": "true", "per_page": 10,
-    })
-    data = _http_get_json(f"{PIXABAY_API}?{params}")
-    if not data or not data.get("hits"):
-        return None
-    item = data["hits"][0]
-    img_url = item.get("largeImageURL") or item.get("webformatURL")
-    if not img_url:
-        return None
-    img_bytes = _download_image(img_url)
-    if not img_bytes:
-        return None
-    try:
-        img_bytes = _fit_image_bytes(img_bytes, width, height)
-    except RuntimeError as e:
-        print(f"[image] {e}", file=sys.stderr)
-        return None
-    hero_path = out_dir / f"{OUTPUT_FILE_PREFIX}{_image_ext(img_bytes)}"
-    _atomic_write_bytes(hero_path, img_bytes)
-    credit = (
-        f'Image by {item.get("user", "Pixabay contributor")} on Pixabay\n'
-        f'License: Pixabay Content License (free for commercial use)\n'
-        f'Source: {item.get("pageURL", img_url)}\n'
-    )
-    _atomic_write_text(out_dir / "hero-credit.txt", credit)
-    return {"source": "pixabay", "path": str(hero_path)}
+    def attempt(slot: env_file.Slot) -> Optional[dict]:
+        key = slot.values["PIXABAY_API_KEY"]
+        params = urllib.parse.urlencode({
+            "key": key, "q": query, "orientation": "horizontal",
+            "image_type": "photo", "safesearch": "true", "per_page": 10,
+        })
+        data = _http_get_json(f"{PIXABAY_API}?{params}", rotatable_status=env_file.ROTATABLE_HTTP_STATUS)
+        if not data or not data.get("hits"):
+            return None
+        item = data["hits"][0]
+        img_url = item.get("largeImageURL") or item.get("webformatURL")
+        if not img_url:
+            return None
+        img_bytes = _download_image(img_url)
+        if not img_bytes:
+            return None
+        try:
+            img_bytes = _fit_image_bytes(img_bytes, width, height)
+        except RuntimeError as e:
+            # Not a credential problem (e.g. Pillow missing): fail this rung
+            # quietly rather than let rotate() blame the key.
+            print(f"[image] {e}", file=sys.stderr)
+            return None
+        hero_path = out_dir / f"{OUTPUT_FILE_PREFIX}{_image_ext(img_bytes)}"
+        _atomic_write_bytes(hero_path, img_bytes)
+        credit = (
+            f'Image by {item.get("user", "Pixabay contributor")} on Pixabay\n'
+            f'License: Pixabay Content License (free for commercial use)\n'
+            f'Source: {item.get("pageURL", img_url)}\n'
+        )
+        _atomic_write_text(out_dir / "hero-credit.txt", credit)
+        return {"source": "pixabay", "path": str(hero_path)}
+
+    return _run_rotated_source("pixabay", attempt)
 
 
 def _try_premium_stock(topic: str, tags: list[str], out_dir: Path, width: int, height: int) -> Optional[dict]:
@@ -537,14 +603,34 @@ def _try_premium_stock(topic: str, tags: list[str], out_dir: Path, width: int, h
 
 def _try_openverse(topic: str, tags: list[str], out_dir: Path, width: int, height: int) -> Optional[dict]:
     """Ladder step 4: public API, no key required, CC-licensed."""
-    query = " ".join([topic] + tags[:3] + ["editorial illustration"])
+    # Openverse matches the query string conjunctively, so appending style words
+    # like "editorial illustration" drops almost every topic to zero results
+    # ("coffee shop" returns 240; "coffee shop editorial illustration" returns 0).
+    # Search the topic and its tags only, and let aspect_ratio/size do the framing.
+    query = " ".join([topic] + tags[:3])
     params = urllib.parse.urlencode({
         "q": query, "aspect_ratio": "wide", "license": "cc0,by,by-sa",
         "size": "large", "page_size": 10,
     })
     data = _http_get_json(f"{OPENVERSE_API}?{params}")
     if not data or not data.get("results"):
-        print("[openverse] no results", file=sys.stderr)
+        # Openverse searches image metadata, which is overwhelmingly English.
+        # A Vietnamese topic returns zero results even when the subject is common,
+        # so say why rather than leaving the caller to guess.
+        try:
+            from vi_text import is_vietnamese
+            vietnamese_query = is_vietnamese(query)
+        except Exception:
+            vietnamese_query = False
+        if vietnamese_query:
+            print(
+                "[openverse] no results: the Openverse corpus is indexed in English, "
+                "so a Vietnamese query matches nothing. Set UNSPLASH_ACCESS_KEY, "
+                "PEXELS_API_KEY or PIXABAY_API_KEY, or supply the hero image manually.",
+                file=sys.stderr,
+            )
+        else:
+            print("[openverse] no results", file=sys.stderr)
         return None
 
     item = data["results"][0]

@@ -8,6 +8,7 @@ description: >
   minimum post-count thresholds to prevent thin tag archives, and syncs taxonomy
   via authenticated API calls. Use when user says "tags", "categories", "taxonomy",
   "tag suggestions", "sync tags", "WordPress tags", "Shopify tags".
+  Also use when the request is written in Vietnamese, for example "tag", "chuyên mục", "gắn thẻ bài viết", "phân loại nội dung".
 user-invokable: true
 argument-hint: "[suggest|sync|audit] [file-or-cms]"
 license: MIT

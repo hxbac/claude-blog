@@ -12,6 +12,7 @@ description: >
   customer", "social listening", "30-day research", "trend research",
   "what's the discussion on", "real-time research", "practitioner discourse",
   "/blog discourse".
+  Also use when the request is written in Vietnamese, for example "người ta đang nói gì về", "thảo luận trên mạng", "dân mạng bàn gì", "khảo sát diễn đàn".
 user-invokable: true
 argument-hint: "<topic> [--days 30|90] [--input results.json] [--output DISCOURSE.md] [--format markdown|json] [--decomposition questions.txt]"
 license: MIT
@@ -73,8 +74,28 @@ For each decomposed query, run WebSearch with platform-targeted site operators. 
 | GitHub | `site:github.com` (for issues / discussions) | Open-source projects |
 | StackOverflow | `site:stackoverflow.com` | Concrete how-to problems |
 | Substack | `site:substack.com` | Newsletter-form essays |
+| Voz | `site:voz.vn` | Technology, consumer goods, personal finance. Highest-signal Vietnamese forum. |
+| Tinh te | `site:tinhte.vn` | Technology, product reviews, hands-on impressions |
+| Webtretho | `site:webtretho.vn` (migrated from `.com`; both still resolve) | Parenting, family, health, household |
+| OtoFun | `site:otofun.net.vn` (migrated from `.net`; both still resolve) | Cars, motorbikes |
+| VnExpress comments | `site:vnexpress.net` | Mainstream reaction to news topics |
 
-Always include a recency filter when the platform supports it (Google's `after:YYYY-MM-DD` and `before:YYYY-MM-DD`). For `--days 30`, set `after:` to today minus 30 days. For `--days 90`, today minus 90 days.
+Verified live 2026-09-05: Voz (Cloudflare-challenged on direct fetch but confirmed
+active via indexed search results and a recent Wayback snapshot), Tinh te,
+Webtretho, OtoFun, and VnExpress all resolve and serve current content.
+Spiderum (`spiderum.com`) was considered and dropped: it has returned
+"Spiderum dang bao tri" (under maintenance) on every direct check since at
+least 2026-07-01 per Wayback Machine snapshots, so it is not currently a live
+research target. Re-check before adding it back.
+
+**Vietnamese platform selection rule.** When the topic or the requested output
+language is Vietnamese, use the Vietnamese platform rows for at least half of
+the composed searches. Facebook groups are where much Vietnamese discussion
+happens but are not indexed and cannot be reached with a `site:` operator;
+state this as a known coverage gap in the brief rather than omitting it
+silently.
+
+Always include a recency filter when the platform supports it (Google's `after:YYYY-MM-DD` and `before:YYYY-MM-DD`). For `--days 30`, set `after:` to today minus 30 days. For `--days 90`, today minus 90 days. `after:`/`before:` are Google operators and work unchanged for Vietnamese queries; no recency change is needed.
 
 ### Phase 3: Result Collection
 
@@ -132,6 +153,19 @@ python3 scripts/discourse_research.py \
   --days 30 \
   --output DISCOURSE.md
 ```
+
+**Output language.** `scripts/discourse_research.py` renders `DISCOURSE.md` with
+fixed English section headers (`# Discourse Brief:`, `## What's NEW in the
+last N days`, `## Consensus across platforms`, `## Niche / single-source
+themes`, `## Practitioner specifics`, `## Source breakdown`) regardless of the
+topic's language; there is no `--lang` flag. When the target post is
+Vietnamese, retitle these headers by hand after generation (a mechanical
+find-and-replace on the fixed heading list, not a rewrite of the body).
+Quotes are reproduced in their original language, always: the script only
+sanitizes snippet text for safe rendering (it never translates), so this rule
+holds automatically for the parts it controls. Section headers follow the
+language of the target post; that part is currently manual because the
+renderer's headers are hardcoded.
 
 ### Phase 5: Synthesis Output
 

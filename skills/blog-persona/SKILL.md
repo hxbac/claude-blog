@@ -7,6 +7,7 @@ description: >
   contraction frequency, and summary box label. Used by blog-write and blog-rewrite
   to enforce consistent voice. Use when user says "persona", "voice", "tone",
   "writing style", "brand voice", "create persona", "use persona".
+  Also use when the request is written in Vietnamese, for example "giọng văn", "persona người viết", "chân dung người đọc".
 user-invokable: true
 argument-hint: "[create|list|use|show] [persona-name]"
 license: MIT

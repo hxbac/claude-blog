@@ -11,6 +11,7 @@ description: >
   consume. Use when user says "outline", "blog outline", "content outline",
   "structure blog", "plan sections", "article skeleton", "heading structure",
   "SERP analysis", "competitive outline", "plan article".
+  Also use when the request is written in Vietnamese, for example "dàn ý", "lên outline", "cấu trúc bài viết", "chia heading".
 user-invokable: true
 argument-hint: "<topic>"
 license: MIT
@@ -131,6 +132,37 @@ Guidelines for heading generation:
   never score or block a complete outline
 - Choose chart types by data shape first; prefer diversity only when it does not weaken the visualization
 - Image placement markers should be distributed evenly across the post
+
+### Vietnamese example (illustrative, not a translation of the template above)
+
+```markdown
+# Dàn Ý: Xin Visa Du Lịch Nhật Bản Tự Túc
+
+## Đề Xuất Tiêu Đề
+1. Xin Visa Du Lịch Nhật Bản Tự Túc: Cần Giấy Tờ Gì?
+2. Hồ Sơ Visa Nhật Bản 2026: Danh Sách Đầy Đủ Cho Người Tự Túc
+3. Bị Từ Chối Visa Nhật Bản? Đây Là Lý Do Thường Gặp
+
+## Dàn Ý
+
+### H2: Giấy Tờ Bắt Buộc Trong Hồ Sơ (~300-400 từ)
+- Mở đầu bằng danh sách giấy tờ
+- Điểm cần nêu:
+  - Hộ chiếu còn hạn ít nhất 6 tháng
+  - Đơn xin visa điền theo mẫu của Đại sứ quán
+  - Ảnh thẻ nền trắng chụp trong 6 tháng gần nhất
+- H3: Giấy tờ chứng minh tài chính (nếu cần)
+  - Sao kê ngân hàng 3 tháng gần nhất
+
+### Kết Luận (~100-150 từ)
+- Tóm tắt các bước cần làm trước khi nộp hồ sơ
+- [CTA: Kiểm tra tình trạng hồ sơ trực tuyến]
+```
+
+Vietnamese titles here front-load the concrete task ("Xin Visa Du Lịch Nhật
+Bản Tự Túc") rather than the English template's question format ("[Section
+Title - Question Format]"); a literal translation of that pattern does not
+read as a real Vietnamese search query.
 
 ### Step 4: Content Gaps
 

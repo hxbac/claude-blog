@@ -9,6 +9,7 @@ description: >
   and HTML output.
   Use when user says "write blog", "new blog post", "create article",
   "write about", "draft blog", "generate blog post".
+  Also use when the request is written in Vietnamese, for example "viết bài", "viết blog", "viết một bài về", "soạn bài", "tạo bài viết", "làm bài chuẩn SEO".
 user-invokable: true
 argument-hint: "<topic>"
 license: MIT
@@ -29,6 +30,7 @@ main `blog` skill's references directory, not in `blog-write/`):
 - `skills/blog/references/internal-linking.md`: Linking strategy and anchor text rules
 - `skills/blog/references/visual-media.md`: Image sourcing and chart styling
 - `skills/blog-write/references/delivery.md`: delivery contract steps and summary template for this sub-skill
+- `skills/blog/references/ai-writing-tells-vi.md`: read before drafting Vietnamese; structural AI-writing patterns with Vietnamese before-and-after examples
 
 ## Workflow
 
@@ -195,6 +197,35 @@ adapt this skeleton to match the template's section structure:
 - [INTERNAL-LINK: anchor text → next logical content]
 ```
 
+### Vietnamese example (a genuinely Vietnamese outline, not a translation of the template above)
+
+```markdown
+# Tiết Kiệm Tiền Điện Mùa Hè: 7 Cách Đơn Giản Cho Gia Đình
+
+## Mở đầu (100-150 từ)
+- Vào thẳng vấn đề: hóa đơn điện tháng 6 tăng gấp đôi vì bật điều hòa cả ngày
+- Nêu con số cụ thể nếu có
+
+## Đặt điều hòa ở 26-27 độ thay vì 20 độ
+- Câu trả lời trước, giải thích sau
+- Số liệu tiêu thụ điện theo từng mức nhiệt độ
+- [ẢNH: điều hòa treo tường với chỉ số nhiệt độ]
+
+## Vệ sinh lưới lọc điều hòa mỗi tháng
+- Lưới bẩn làm máy chạy tốn điện hơn 5-10%
+- Hướng dẫn từng bước kèm ảnh thực tế
+
+## Kết luận (100-150 từ)
+- Tóm tắt 3 việc làm ngay hôm nay
+- [CTA: Tải bảng theo dõi điện năng miễn phí]
+```
+
+Vietnamese heading and CTA conventions differ from the English template
+above rather than mirroring it word for word: the title leads with a number
+and the concrete benefit ("7 Cách Đơn Giản") instead of the English
+question-format pattern, and the CTA uses a direct verb-first imperative
+("Tải ... miễn phí") rather than a rendering of "Download now."
+
 Present the outline to the user for approval before writing.
 
 **Visual element pacing**: Insert `[IMAGE]`, `[CHART]`, `[VIDEO]`, or `[CALLOUT]` markers
@@ -224,6 +255,11 @@ Write the full article following these rules:
 ---
 title: "[Clear title that identifies the page and matches search intent]"
 description: "[Accurate, page-specific summary of the visible content]"
+lang: "[ISO 639-1 code, e.g. en, tr, vi. Required: drives language-aware quality scoring]"
+slug: "[URL slug. Required: Gate 2 compares the rendered .html/.pdf stem against this.
+        Omit it and the stem is derived from the title instead, which will not match the
+        .md filename you chose. Vietnamese is transliterated: Hướng dẫn -> huong-dan]"
+canonical: "[Absolute canonical URL. Required: Gate 5 blocks without a rel=canonical link]"
 coverImage: "[URL from Pixabay/Unsplash/Pexels or generated SVG path]"
 coverImageAlt: "[Descriptive sentence about the cover image]"
 ogImage: "[Same as coverImage, or custom OG image URL]"

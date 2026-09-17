@@ -41,6 +41,13 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Optional
 
+# Credentials come from a .env file so they never have to be typed on a command
+# line. See scripts/env_file.py for the search order.
+_ENV_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if _ENV_SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _ENV_SCRIPT_DIR)
+import env_file  # noqa: E402,F401
+
 
 def _project_version() -> str:
     """Read the package version from pyproject.toml."""
@@ -509,6 +516,9 @@ def gate_1_capability_discovery(draft_dir: Path, live_tools: list[str] | None = 
     # probe its reachability here (network HEAD at gate-1 time is too slow
     # and flaky); we report it as best-effort and let generate_hero.py
     # surface a runtime failure if Openverse is unreachable when invoked.
+    # Assumed, never probed. Gate 1 therefore passes on this alone while
+    # generate_hero.py can still fail later, surfacing as a missing hero at
+    # Gate 2 rather than as a capability problem here.
     openverse_assumed_available = True            # best-effort fallback
     image_gen_available = configured_image_paths or openverse_assumed_available
 

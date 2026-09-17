@@ -1,6 +1,7 @@
 ---
 name: blog-style
 description: Learn author writing style from 5 to 10 existing blog posts and generate a voice profile for /blog style learn, VOICE.md, blog-persona, and blog-write when users ask to infer tone, analyze author voice, learn style, or build a writing baseline.
+  Also use when the request is written in Vietnamese, for example "học giọng văn", "phân tích văn phong", "viết giống như bài cũ".
 argument-hint: "learn <paths>"
 user-invokable: true
 license: MIT
@@ -12,6 +13,10 @@ Learn an author voice profile from existing posts, then use it as a baseline for
 VOICE.md, blog-persona, and blog-write. The profile captures measurable style
 signals so future drafts can preserve the author's cadence, vocabulary, and
 tone.
+
+See `skills/blog/references/ai-writing-tells-vi.md` before learning or applying
+a voice profile for Vietnamese content; it holds structural AI-writing
+patterns with Vietnamese before-and-after examples.
 
 ## Commands
 

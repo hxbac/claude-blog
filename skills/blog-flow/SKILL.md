@@ -6,6 +6,7 @@ description: >
   knowledge base (30 blog-applicable prompts, CC BY 4.0). Use when user says
   "FLOW", "FLOW framework", "blog flow", "evidence-led blogging", "find optimize
   win", or wants stage-specific blog prompts.
+  Also use when the request is written in Vietnamese, for example "FLOW", "quy trình dựa trên bằng chứng", "prompt theo khung FLOW".
 user-invokable: true
 argument-hint: "[stage] [url|topic]"
 license: MIT

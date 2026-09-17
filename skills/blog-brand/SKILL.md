@@ -10,6 +10,7 @@ description: >
   JSON. Use when user says "blog brand", "create brand context", "brand
   voice doc", "BRAND.md", "VOICE.md", "establish editorial brand",
   "brand guidelines for blog".
+  Also use when the request is written in Vietnamese, for example "thiết lập thương hiệu", "giọng thương hiệu", "brand voice", "tông giọng công ty".
 user-invokable: true
 argument-hint: "[init|show|update]"
 license: MIT

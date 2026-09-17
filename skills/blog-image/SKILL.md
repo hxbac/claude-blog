@@ -8,6 +8,7 @@ description: >
   blog-write and blog-rewrite; falls back gracefully when MCP is unavailable.
   Use when user says "blog image", "generate hero image", "blog illustration",
   "edit blog image", "OG image".
+  Also use when the request is written in Vietnamese, for example "tạo ảnh", "ảnh bìa", "ảnh minh hoạ", "làm ảnh cho bài".
 user-invokable: true
 argument-hint: "[generate|edit|setup] [description-or-path]"
 license: MIT
@@ -180,6 +181,19 @@ coverImageAlt: "Descriptive alt text sentence with topic keywords"
 ogImage: "/path/to/generated-image.png"
 ```
 6. **Refinement suggestions** - 1-2 ideas if relevant
+
+## Vietnamese-Market Image Guidance
+
+**Vietnamese text in generated images.** Every current image model renders
+Vietnamese diacritics incorrectly: missing tone marks, marks on the wrong
+vowel, `đ` rendered as `d`. Never ask a model to draw Vietnamese text inside
+an image. Generate the image without text and overlay it with HTML/CSS,
+where the text stays selectable, translatable and correct.
+
+**Stock photo path.** Unsplash, Pexels, Pixabay and Openverse are all thin on
+Vietnamese subjects: people, streets, products, signage. For a post that
+needs local imagery, say so rather than shipping a generic stock photo of a
+Western office.
 
 ## Edit Workflow
 

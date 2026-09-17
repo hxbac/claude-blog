@@ -8,6 +8,7 @@ description: >
   source attribution, and transparent backgrounds. Use when user says "blog
   chart", "generate chart", "data visualization", "svg chart", "blog graph",
   or "visualize data".
+  Also use when the request is written in Vietnamese, for example "biểu đồ", "chart cho bài", "vẽ đồ thị số liệu".
 user-invokable: false
 license: MIT
 ---

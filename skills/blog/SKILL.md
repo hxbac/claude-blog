@@ -8,6 +8,7 @@ description: >
   Google rankings, E-E-A-T, and AI citations. Supports any platform. Use when
   user says "blog", "blog post", "blog audit", "topic cluster",
   "multilingual blog", or any /blog subcommand.
+  Also use when the request is written in Vietnamese, for example "bài viết", "blog", "nội dung website", "SEO", "viết bài cho web".
 license: MIT
 compatibility: Requires Claude Code and Python 3.11+ for quality scoring
 metadata:
@@ -168,7 +169,7 @@ Score with `skills/blog/references/quality-scoring.md`: Content Quality 30, SEO 
 
 ## Reference Files
 
-Load on-demand as needed (22 references, load only what the task needs):
+Load on-demand as needed (24 references, load only what the task needs):
 
 - `skills/blog/references/google-landscape-2026.md`: source-governed 2026 Search
   updates, reporting anomalies, structured data, and API currentness
@@ -195,6 +196,8 @@ Load on-demand as needed (22 references, load only what the task needs):
 - `skills/blog/references/synthesis-contract.md`: 6 LAWs for research-synthesis output (v1.8.0)
 - `skills/blog/references/blog-delivery-contract.md`: 5-gate enforcement between content generation and user delivery (v1.9.0)
 - `skills/blog/references/orchestration-details.md`: agent roles, execution flow, internal workflows, and project-root context loading
+- `skills/blog/references/ai-writing-tells-vi.md`: structural AI-writing patterns with Vietnamese before/after examples, for the writing agent to load before drafting Vietnamese (Phase G)
+- `skills/blog/references/vi-word-list-tiering.md`: the tiering bar for the Vietnamese AI-tell word lists in `scripts/vi_profile.py`, scored versus advisory (Phase G)
 
 For named Google update or Search currentness work, resolve the reviewed ledger
 from repository-root `data/google-updates.json` first. If this is a standalone

@@ -9,6 +9,7 @@ description: >
   Use when user says "multilingual blog", "blog multilingual", "write in
   multiple languages", "international blog", "mehrsprachiger Blog", "blog
   multilingue", "blog multilingue", "create blog in German and French".
+  Also use when the request is written in Vietnamese, for example "viết đa ngôn ngữ", "bài nhiều thứ tiếng", "làm cả bản Anh và Việt".
 user-invokable: true
 argument-hint: "<topic> --languages <comma-separated-codes>"
 license: MIT

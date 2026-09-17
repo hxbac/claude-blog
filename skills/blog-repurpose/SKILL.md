@@ -8,6 +8,7 @@ description: >
   platform.
   Use when user says "repurpose", "blog repurpose", "share blog", "social media",
   "twitter thread", "linkedin post", "youtube script", "reddit post".
+  Also use when the request is written in Vietnamese, for example "đăng lại lên Facebook", "cắt thành post ngắn", "chuyển thành bài social", "làm caption".
 user-invokable: true
 argument-hint: "<file-path>"
 license: MIT

@@ -6,7 +6,7 @@ This repository contains **Claude Blog**, a Tier 4 Claude Code skill for blog co
 creation, optimization, and management. It follows the Agent Skills open standard and the
 3-layer architecture (directive, orchestration, execution). 32 skill directories
 (1 orchestrator + 31 sub-skills), 30 user-facing `/blog` commands, 5 specialized
-subagents, 12 content templates, and 22 reference docs are dual-optimized for Google rankings
+subagents, 12 content templates, and 24 reference docs are dual-optimized for Google rankings
 (2026 core and spam update timeline, E-E-A-T) and AI citations (GEO/AEO). Includes FLOW framework
 integration, semantic topic-cluster planning + execution, multilingual publishing (Pro Hub
 Challenge v1.7.0), BRAND.md/VOICE.md/DISCOURSE.md project-root context auto-load (v1.8.0,
@@ -148,6 +148,67 @@ claude-blog/
 
 Internal capability: `blog-chart` generates inline SVG charts for `/blog write`
 and `/blog rewrite`; it is not a top-level user command.
+
+## Default market
+
+All DataForSEO and Keyword Planner calls default to `location_code=2704` (Vietnam) and
+`language_code="vi"`. Change only when the user names a different country.
+
+- Province/city level: use the SERP API, not Labs. Hanoi 1028580, Ho Chi Minh City
+  1028581, Da Nang 1028809. DataForSEO Labs covers Vietnam at country level only.
+- `search_volume` bills **per task, not per keyword** (up to ~1000 keywords per task).
+  Always batch into one call. Calling it once per keyword costs 1000x more for the
+  same data.
+- Prefer the standard queue over live mode unless the user says it is urgent:
+  SERP $0.0006 vs $0.002, Keywords Data $0.06 vs $0.09.
+- Never re-request a keyword already fetched in the current session.
+
+## Conversational routing (no slash command required)
+
+The primary user is a Vietnamese SEO content marketer who does not type slash
+commands. They open Claude Code in this directory and describe what they want in
+Vietnamese. Route from intent, and never answer with "use `/blog write`" when the
+request itself is already the instruction.
+
+Every skill description carries its Vietnamese trigger phrases, so matching
+happens automatically. What this section adds is the behaviour around the match:
+
+- **Act, do not offer.** "viết cho tôi bài về cách chọn máy pha cà phê" is a
+  request to write the post, not a request for options. Invoke `blog-write`.
+- **Reply in Vietnamese** when the user writes in Vietnamese, including gate
+  failures and review findings. Keep English only for code, file paths, frontmatter
+  keys and metric names.
+- **Assume `lang: vi`** unless the user names another language. This selects the
+  `vi` language profile in `analyze_blog.py`; getting it wrong silently scores the
+  post against English patterns and costs roughly 30 of the 100 points.
+- **A Vietnamese post needs an image key.** The keyless Openverse fallback indexes
+  English metadata only, so a Vietnamese query returns nothing and Gate 2 fails on
+  a missing hero. If none of `PEXELS_API_KEY`, `PIXABAY_API_KEY`,
+  `UNSPLASH_ACCESS_KEY` or `GOOGLE_AI_API_KEY` is set, say so before writing rather
+  than after the gate blocks.
+- **Ambiguity between neighbouring skills gets one short question**, not a menu of
+  31. "tối ưu bài này" could be `blog-rewrite`, `blog-seo-check` or `blog-analyze`;
+  ask which outcome they want in one line.
+
+### Project-scoped install
+
+`link-skills.sh` symlinks `skills/*` and `agents/*` into `.claude/`, so this
+checkout is the live source and nothing is copied into `~/.claude/`. Consequences
+worth remembering:
+
+- Editing a `SKILL.md` here takes effect on the next prompt. `git diff` is a
+  complete audit of what the agent is allowed to read.
+- Claude Code must run with this repository root as its working directory. About
+  thirty skills call helpers by repository-relative path
+  (`python3 scripts/blog_render.py`, `python3 skills/blog-google/scripts/run.py`);
+  those resolve nowhere else.
+- `.claude/settings.json` pins `CLAUDE_BLOG_SCRIPTS_DIR` and
+  `CLAUDE_BLOG_LOAD_UNTRUSTED_HELPER` to absolute paths in this checkout. Without
+  them the delivery-contract block falls back to `$HOME/.claude/scripts`, which does
+  not exist under a project-scoped install.
+- Per Claude Code precedence, a personal skill of the same name overrides the
+  project one. Do not run `install.sh` while this wiring is in use, or `~/.claude/`
+  wins and the audit trail stops being the thing that executes.
 
 ## Development Rules
 

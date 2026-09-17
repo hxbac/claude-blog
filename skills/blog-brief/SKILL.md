@@ -9,6 +9,7 @@ description: >
   Briefs are optimized for Google rankings and AI citation visibility as part of SEO. Use
   when user says "content brief", "blog brief", "write brief", "SEO brief",
   "article brief", or "content requirements".
+  Also use when the request is written in Vietnamese, for example "làm brief", "đề cương nội dung", "brief cho bài viết".
 user-invokable: true
 argument-hint: "<topic>"
 license: MIT
@@ -274,6 +275,33 @@ statistic for every section.
 - **Twitter/X**: [Thread hook (first tweet), 3-5 key tweet ideas built from
   statistics in the post, hashtag suggestions]
 ```
+
+### Step 5.5: Vietnamese example (illustrative, not a translation of the template above)
+
+For a Vietnamese-market brief comparing air fryers for a household of four:
+
+```markdown
+## Tiêu Đề Đề Xuất
+Nồi Chiên Không Dầu Cho Gia Đình 4 Người: Chọn Dung Tích Nào?
+
+Tiêu đề thay thế:
+1. 5 Tiêu Chí Chọn Nồi Chiên Không Dầu Không Bị Hối Hận
+2. Nồi Chiên Không Dầu 6 Lít Hay 8 Lít: Gia Đình 4 Người Nên Mua Loại Nào?
+
+## Mô Tả Meta
+So sánh dung tích, công suất và giá của nồi chiên không dầu phổ biến tại Việt
+Nam, giúp gia đình 4 người chọn đúng loại không lãng phí tiền.
+
+## Bản Nháp TL;DR
+> Tóm tắt: Gia đình 4 người nên chọn nồi chiên không dầu từ 6 đến 7 lít, công
+> suất 1500-1800W, để nấu đủ một bữa cho cả nhà trong một lượt mà không phải
+> chia hai mẻ.
+```
+
+Vietnamese titles for comparison and buying-guide content lead with the
+product category and a concrete decision point ("Chọn Dung Tích Nào?"),
+rather than the English template's power-word-plus-benefit pattern
+translated word for word.
 
 ### Step 6: Save the Brief
 

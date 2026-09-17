@@ -45,6 +45,12 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import vi_register  # noqa: E402
+import vi_text  # noqa: E402
+from vi_profile import VI_PROFILE  # noqa: E402
+
 
 def _project_version() -> str:
     """Read the package version from pyproject.toml."""
@@ -175,6 +181,21 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             r'(?:\d|https?://|\[[^\]]+\]\(https?://)',
         ),
         'readability_model': 'flesch',
+        # Backfilled from the previously hardcoded regexes at analyze_ai_citation_readiness
+        # (entity_definitions) and the eeat trust check, so behavior for 'en' is unchanged.
+        'entity_definition_patterns': (
+            r'\*\*[^*]+\*\*\s*(?:is|are|refers to|means)',
+        ),
+        'editorial_patterns': (
+            r'(?i)\b(?:editorial|reviewed by|fact.?check|editor)\b',
+        ),
+        # G1 (Phase G): the profile carries these so a new language cannot
+        # repeat the mistake of a hardcoded English-only list running on
+        # every post. These are the pre-existing module constants, unchanged,
+        # so English scoring is byte-identical to before this change.
+        'ai_phrases': tuple(AI_PHRASES),
+        'ai_trigger_words': tuple(AI_TRIGGER_WORDS),
+        'transition_words': tuple(TRANSITION_WORDS),
     },
     'tr': {
         'summary_labels': (r'özet', r'özetle', r'kısaca'),
@@ -198,7 +219,27 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             r'(?:\d|https?://|\[[^\]]+\]\(https?://)',
         ),
         'readability_model': 'atesman',
+        # Deliberately the same patterns as 'en', not translated Turkish. Turkish
+        # previously fell through to these exact hardcoded English regexes (see
+        # analyze_ai_citation_readiness and the eeat trust check before this
+        # change), so keeping them here is a true no-op for Turkish scoring.
+        # Proper Turkish entity_definition_patterns / editorial_patterns need a
+        # Turkish reader to author and review; that is a separate follow-up, not
+        # a guess shipped in this change.
+        'entity_definition_patterns': (
+            r'\*\*[^*]+\*\*\s*(?:is|are|refers to|means)',
+        ),
+        'editorial_patterns': (
+            r'(?i)\b(?:editorial|reviewed by|fact.?check|editor)\b',
+        ),
+        # Same reasoning as 'en' above: Turkish had no dedicated list before
+        # this change either, so it fell through to these English constants.
+        # Keeping that fallback here is a true no-op for Turkish scoring.
+        'ai_phrases': tuple(AI_PHRASES),
+        'ai_trigger_words': tuple(AI_TRIGGER_WORDS),
+        'transition_words': tuple(TRANSITION_WORDS),
     },
+    'vi': VI_PROFILE,
 }
 
 
@@ -535,7 +576,13 @@ def _detect_language(frontmatter: dict[str, Any], body: str) -> str:
     ).strip().lower()
     if declared:
         primary = re.split(r'[-_]', declared, maxsplit=1)[0]
-        return primary if primary in LANGUAGE_PROFILES else 'en'
+        if primary in LANGUAGE_PROFILES:
+            return primary
+        # Declared but unsupported: fall through to heuristics rather than
+        # silently assuming English. The old code returned 'en' here.
+
+    if vi_text.is_vietnamese(body):
+        return 'vi'
 
     strong_turkish_markers = len(re.findall(r'[ığşİĞŞ]', body))
     letters = len(re.findall(r'[^\W\d_]', body, re.UNICODE))
@@ -861,7 +908,9 @@ def analyze_readability(text: str, language: str = 'en') -> dict[str, Any]:
     sentence_count = len(sentences) if sentences else 1
     avg_sentence_len = word_count / sentence_count
 
-    if LANGUAGE_PROFILES.get(language, LANGUAGE_PROFILES['en'])["readability_model"] == 'atesman':
+    profile = LANGUAGE_PROFILES.get(language, LANGUAGE_PROFILES['en'])
+
+    if profile["readability_model"] == 'atesman':
         vowel_count = sum(len(re.findall(r'[aeıioöuü]', word.lower())) for word in words)
         mean_syllables = vowel_count / max(word_count, 1)
         score = 198.825 - 40.175 * mean_syllables - 2.610 * avg_sentence_len
@@ -873,6 +922,34 @@ def analyze_readability(text: str, language: str = 'en') -> dict[str, Any]:
             'reading_time_minutes': round(word_count / 238, 1),
             'avg_sentence_length': round(avg_sentence_len, 1),
             'mean_syllables_per_word': round(mean_syllables, 2),
+            'estimated': False,
+        }
+
+    if profile["readability_model"] == 'vi_syllable':
+        # Vietnamese is monosyllabic: one syllable per whitespace token, so
+        # "syllables per word" carries no signal and Flesch is meaningless here.
+        # Sentence length and the tail of very long sentences do carry signal.
+        # This is a documented heuristic, not a published formula.
+        # Split on terminal punctuation OR a line break. Markdown headings, list
+        # items and table rows carry no full stop, so a punctuation-only split
+        # merges each one into the following sentence and inflates the average.
+        # Measured on the Vietnamese fixture: 27.1 syllables/sentence without the
+        # newline term, 22.8 with it.
+        sentences_text = [s for s in re.split(r'[.!?…]+|\n+', text)
+                          if vi_text.count_syllables(s) >= 2]
+        lengths = [vi_text.count_syllables(s) for s in sentences_text] or [0]
+        avg_syllables = sum(lengths) / len(lengths)
+        long_ratio = sum(1 for n in lengths if n > 30) / max(len(lengths), 1)
+        score = 100.0 - 3.0 * max(0.0, avg_syllables - 10) - 15.0 * long_ratio
+        score = max(0.0, min(100.0, score))
+        return {
+            'reading_model': 'vi_syllable',
+            'reading_ease': round(score, 1),
+            'vi_reading_ease': round(score, 1),
+            'reading_time_minutes': round(word_count / 200, 1),   # ~200 syl/min for vi
+            'avg_sentence_length': round(avg_syllables, 1),
+            'long_sentence_ratio': round(long_ratio, 3),
+            'sentence_count': len(lengths),
             'estimated': False,
         }
 
@@ -954,17 +1031,27 @@ def analyze_sentences(text: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def analyze_ai_signals(text: str, sentences_info: dict[str, Any]) -> dict[str, Any]:
+def analyze_ai_signals(
+    text: str, sentences_info: dict[str, Any], language: str = 'en'
+) -> dict[str, Any]:
     """Return non-scoring editorial style diagnostics.
 
     Phrase frequency, type-token ratio, and sentence-length variance cannot
     determine authorship. The legacy keys remain for output compatibility, but
     the analyzer never converts these observations into an AI probability or a
     quality-gate decision.
+
+    G1 (Phase G): the phrase list is looked up from the active language
+    profile rather than the module-level AI_PHRASES constant, so a
+    Vietnamese post is checked against Vietnamese phrases instead of always
+    scoring zero. The 'en' profile carries AI_PHRASES unchanged, so English
+    output is identical to before this change.
     """
+    profile = LANGUAGE_PROFILES.get(language, LANGUAGE_PROFILES['en'])
+    ai_phrases = profile.get('ai_phrases', AI_PHRASES)
     found_phrases: list[dict[str, Any]] = []
     lower_text = text.lower()
-    for phrase in AI_PHRASES:
+    for phrase in ai_phrases:
         count = lower_text.count(phrase)
         if count > 0:
             found_phrases.append({'phrase': phrase, 'count': count})
@@ -989,8 +1076,83 @@ def analyze_ai_signals(text: str, sentences_info: dict[str, Any]) -> dict[str, A
 # ---------------------------------------------------------------------------
 
 
-def analyze_passive_voice(text: str) -> dict[str, Any]:
-    """Estimate passive voice percentage using regex heuristics."""
+def _vi_alt_pattern(phrases: tuple[str, ...]) -> str:
+    """Build a regex alternation from plain Vietnamese phrases.
+
+    Escapes each phrase, then turns the escaped literal space back into
+    ``\\s+`` so a phrase written with a single space in vi_profile.py still
+    matches text with wrapped or doubled whitespace. Longest phrase first so
+    a longer alternative is tried before a shorter one that could be its
+    prefix.
+    """
+    escaped = [re.escape(p).replace('\\ ', r'\s+') for p in phrases]
+    escaped.sort(key=len, reverse=True)
+    return '|'.join(escaped)
+
+
+_VI_PASSIVE_ADVERB_GROUP = (
+    r'(?:' + _vi_alt_pattern(VI_PROFILE['passive_adverbs']) + r')\s+'
+)
+_VI_PASSIVE_VERB_GROUP = r'(?:' + _vi_alt_pattern(VI_PROFILE['passive_verbs']) + r')'
+_VI_BI_PATTERN = re.compile(
+    r'bị\s+(?:' + _VI_PASSIVE_ADVERB_GROUP + r')?' + _VI_PASSIVE_VERB_GROUP
+)
+_VI_DUOC_PATTERN = re.compile(
+    r'được\s+(?:' + _VI_PASSIVE_ADVERB_GROUP + r')?' + _VI_PASSIVE_VERB_GROUP
+)
+
+
+def _analyze_passive_voice_vi(text: str) -> dict[str, Any]:
+    """Vietnamese passive voice: preverbal marker (bi/duoc) plus a verb.
+
+    See vi_profile.py's 'passive_verbs' / 'passive_adverbs' entries for the
+    full word lists and the documented over-count this heuristic accepts
+    (a benefactive/permissive reading of "duoc" + verb is counted the same
+    as a true passive, because the two are not distinguishable without a
+    parser).
+    """
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    sentences = [s for s in sentences if len(s.split()) > 2]
+    if not sentences:
+        return {
+            'passive_count': 0, 'total_sentences': 0, 'passive_pct': 0.0,
+            'bi_count': 0, 'duoc_count': 0, 'model': 'vi_marker',
+        }
+
+    bi_count = 0
+    duoc_count = 0
+    passive_sentences = 0
+    for s in sentences:
+        bi_hits = len(_VI_BI_PATTERN.findall(s))
+        duoc_hits = len(_VI_DUOC_PATTERN.findall(s))
+        bi_count += bi_hits
+        duoc_count += duoc_hits
+        if bi_hits or duoc_hits:
+            passive_sentences += 1
+
+    return {
+        'passive_count': bi_count + duoc_count,
+        'total_sentences': len(sentences),
+        'passive_pct': round(passive_sentences / len(sentences) * 100, 1),
+        'bi_count': bi_count,
+        'duoc_count': duoc_count,
+        'model': 'vi_marker',
+    }
+
+
+def analyze_passive_voice(text: str, language: str = 'en') -> dict[str, Any]:
+    """Estimate passive voice percentage using regex heuristics.
+
+    G2 (Phase G): dispatches on the active language profile. Vietnamese has
+    no auxiliary+participle passive, so the English regex below always
+    matched zero Vietnamese sentences; 'vi' now routes to a preverbal-marker
+    detector instead. Every other language keeps the exact regex used
+    before this change, so English (and Turkish, which shared the same
+    fallback) scoring is unchanged.
+    """
+    if language == 'vi':
+        return _analyze_passive_voice_vi(text)
+
     sentences = re.split(r'(?<=[.!?])\s+', text)
     sentences = [s for s in sentences if len(s.split()) > 2]
     if not sentences:
@@ -1016,17 +1178,25 @@ def analyze_passive_voice(text: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def analyze_transition_words(text: str) -> dict[str, Any]:
-    """Measure percentage of sentences containing transition words."""
+def analyze_transition_words(text: str, language: str = 'en') -> dict[str, Any]:
+    """Measure percentage of sentences containing transition words.
+
+    G1 (Phase G): the word list is looked up from the active language
+    profile. The 'en' profile carries TRANSITION_WORDS unchanged, so English
+    output is identical to before this change.
+    """
     sentences = re.split(r'(?<=[.!?])\s+', text)
     sentences = [s for s in sentences if len(s.split()) > 2]
     if not sentences:
         return {'transition_count': 0, 'total_sentences': 0, 'transition_pct': 0.0}
 
+    profile = LANGUAGE_PROFILES.get(language, LANGUAGE_PROFILES['en'])
+    transition_words = profile.get('transition_words', TRANSITION_WORDS)
+
     lower_sentences = [s.lower() for s in sentences]
     transition_count = 0
     for s in lower_sentences:
-        for tw in TRANSITION_WORDS:
+        for tw in transition_words:
             if tw in s:
                 transition_count += 1
                 break  # count each sentence once
@@ -1043,21 +1213,47 @@ def analyze_transition_words(text: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def analyze_ai_trigger_words(text: str) -> dict[str, Any]:
-    """Count AI trigger words per 1,000 words."""
+def analyze_ai_trigger_words(text: str, language: str = 'en') -> dict[str, Any]:
+    """Count AI trigger words per 1,000 words.
+
+    G1 (Phase G): the word list is looked up from the active language
+    profile. The 'en' profile carries AI_TRIGGER_WORDS unchanged and keeps
+    the `\\b`-anchored regex match, so English output is identical to before
+    this change. Vietnamese trigger phrases are matched by substring instead
+    of `\\b`: Python's `\\b` is defined over [A-Za-z0-9_], so it is not safe
+    to rely on around a phrase that starts or ends with an accented
+    Vietnamese letter (see vi_profile.py's module docstring).
+
+    Also reports 'advisory_found': profile phrases that are common enough in
+    ordinary formal writing that they are not counted toward trigger_count
+    or per_1k. See skills/blog/references/vi-word-list-tiering.md.
+    """
     words = text.split()
     word_count = len(words)
     if word_count == 0:
-        return {'trigger_count': 0, 'per_1k': 0.0, 'found': []}
+        return {'trigger_count': 0, 'per_1k': 0.0, 'found': [], 'advisory_found': []}
+
+    profile = LANGUAGE_PROFILES.get(language, LANGUAGE_PROFILES['en'])
+    trigger_words = profile.get('ai_trigger_words', AI_TRIGGER_WORDS)
+    advisory_words = profile.get('ai_advisory_phrases', ())
 
     lower_text = text.lower()
     found: list[dict[str, Any]] = []
     total = 0
-    for tw in AI_TRIGGER_WORDS:
-        count = len(re.findall(r'\b' + re.escape(tw) + r'\b', lower_text))
+    for tw in trigger_words:
+        if language == 'vi':
+            count = lower_text.count(tw)
+        else:
+            count = len(re.findall(r'\b' + re.escape(tw) + r'\b', lower_text))
         if count > 0:
             found.append({'word': tw, 'count': count})
             total += count
+
+    advisory_found: list[dict[str, Any]] = []
+    for tw in advisory_words:
+        count = lower_text.count(tw)
+        if count > 0:
+            advisory_found.append({'word': tw, 'count': count})
 
     per_1k = round(total / word_count * 1000, 1)
 
@@ -1065,6 +1261,7 @@ def analyze_ai_trigger_words(text: str) -> dict[str, Any]:
         'trigger_count': total,
         'per_1k': per_1k,
         'found': found,
+        'advisory_found': advisory_found,
     }
 
 
@@ -1252,6 +1449,9 @@ def analyze_ai_citation_readiness(content: str, headings_info: dict[str, Any],
         r'^##\s+(.+?)\s*$\n(.*?)(?=^##\s+|\Z)',
         re.MULTILINE | re.DOTALL,
     )
+    profile = LANGUAGE_PROFILES.get(language, LANGUAGE_PROFILES['en'])
+    entity_definition_patterns = profile['entity_definition_patterns']
+
     sections = section_pattern.findall(content)
     evidence_backed_sections = 0
     self_contained_sections = 0
@@ -1262,11 +1462,10 @@ def analyze_ai_citation_readiness(content: str, headings_info: dict[str, Any],
             section,
             re.IGNORECASE,
         ))
-        has_definition = bool(re.search(
-            r'\*\*[^*]+\*\*\s*(?:is|are|refers to|means)',
-            section,
-            re.IGNORECASE,
-        ))
+        has_definition = any(
+            re.search(pattern, section, re.IGNORECASE)
+            for pattern in entity_definition_patterns
+        )
         has_specific_support = bool(re.search(r'\b\d+(?:\.\d+)?%?\b', section))
         if has_source or has_evidence_marker:
             evidence_backed_sections += 1
@@ -1288,10 +1487,14 @@ def analyze_ai_citation_readiness(content: str, headings_info: dict[str, Any],
                     break
 
     # Entity clarity: detect defined terms (bold terms followed by explanations)
-    entity_definitions = len(re.findall(r'\*\*[^*]+\*\*\s*(?:is|are|refers to|means)', content))
+    # Case-sensitive, matching the historical 'en' regex exactly (no re.IGNORECASE)
+    # so English scoring is unaffected by this change.
+    entity_definitions = sum(
+        len(re.findall(pattern, content))
+        for pattern in entity_definition_patterns
+    )
 
     # Extraction-friendly structures
-    profile = LANGUAGE_PROFILES.get(language, LANGUAGE_PROFILES['en'])
     summary_pattern = '|'.join(profile['summary_labels'])
     has_tldr = bool(re.search(rf'(?i)(?:{summary_pattern})', content))
     table_count = len(re.findall(r'^\|.+\|$', content, re.MULTILINE))
@@ -1426,6 +1629,7 @@ def calculate_score(analysis: dict[str, Any]) -> dict[str, Any]:
     """Calculate the 5-category, 100-point quality score."""
     issues: list[dict[str, Any]] = []
     category_details: dict[str, dict[str, Any]] = {}
+    language = analysis.get('language', 'en')
 
     # ===================================================================
     # CONTENT QUALITY (30 pts)
@@ -1475,6 +1679,17 @@ def calculate_score(analysis: dict[str, Any]) -> dict[str, Any]:
         read_score = 5
     elif reading_model == 'atesman' and 0 <= reading_ease <= 100:
         read_score = 3
+    elif reading_model == 'vi_syllable' and reading_ease >= 70:
+        read_score = 7
+    elif reading_model == 'vi_syllable' and reading_ease >= 55:
+        read_score = 5
+    elif reading_model == 'vi_syllable' and reading_ease >= 40:
+        read_score = 3
+    elif reading_model == 'vi_syllable':
+        read_score = 1
+        issues.append({'category': 'content', 'severity': 'medium',
+                       'issue': f'Câu quá dài (trung bình {readability.get("avg_sentence_length")} '
+                                f'âm tiết/câu). Chia nhỏ các câu trên 30 âm tiết.'})
     elif 60 <= reading_ease <= 70:
         read_score = 7
     elif 55 <= reading_ease <= 75:
@@ -1482,6 +1697,9 @@ def calculate_score(analysis: dict[str, Any]) -> dict[str, Any]:
     elif 45 <= reading_ease <= 80:
         read_score = 3
     else:
+        # Reachable only by the flesch / flesch-estimate models: atesman and
+        # vi_syllable have their own dedicated branches above that cover their
+        # entire score range, so this catch-all never mislabels those models.
         read_score = 1
         issues.append({'category': 'content', 'severity': 'medium',
                        'issue': f'Flesch reading ease ({reading_ease}) outside acceptable range (55-75)'})
@@ -1567,6 +1785,30 @@ def calculate_score(analysis: dict[str, Any]) -> dict[str, Any]:
     gram_score = min(gram_score, 3)
     cq += gram_score
     cq_breakdown['grammar_antipattern'] = gram_score
+
+    # G3 (Phase G): Vietnamese address-register drift is an advisory Content
+    # finding, not a point deduction; there is no calibration data yet for
+    # how many points a register mix should cost, and the false-positive
+    # cost of the underlying heuristic (see vi_register.py) argues for
+    # surfacing it to a human rather than scoring it automatically.
+    vi_register_result = analysis.get('vi_register')
+    if language == 'vi' and vi_register_result and not vi_register_result.get('consistent', True):
+        off_register = vi_register_result.get('off_register', [])
+        off_lines = sorted({row['line'] for row in off_register})
+        dominant = vi_register_result.get('dominant_register')
+        shown = off_lines[:10]
+        lines_text = ', '.join(str(n) for n in shown)
+        if len(off_lines) > len(shown):
+            lines_text += f' và {len(off_lines) - len(shown)} dòng khác'
+        issues.append({
+            'category': 'content',
+            'severity': 'medium',
+            'issue': (
+                f'Xưng hô không nhất quán: bài chủ yếu dùng ngôi "{dominant}", '
+                f'nhưng dòng {lines_text} lại dùng ngôi xưng hô khác. '
+                f'Chọn một cách xưng hô thống nhất cho toàn bài.'
+            ),
+        })
 
     cq = min(cq, 30)
     category_details['content_quality'] = {'score': cq, 'max': 30, 'breakdown': cq_breakdown}
@@ -1748,7 +1990,8 @@ def calculate_score(analysis: dict[str, Any]) -> dict[str, Any]:
     if any(re.search(pattern, body, re.IGNORECASE)
            for pattern in profile['contact_patterns']):
         trust_score += 1
-    if re.search(r'(?i)\b(?:editorial|reviewed by|fact.?check|editor)\b', body):
+    if any(re.search(pattern, body, re.IGNORECASE)
+           for pattern in profile['editorial_patterns']):
         trust_score += 1
     trust_score = min(trust_score, 4)
     eeat += trust_score
@@ -2016,6 +2259,12 @@ def analyze_file(file_path: str) -> dict[str, Any]:
         content = _read_safely(path)
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         return {'error': f'Could not analyze {file_path}: {exc}'}
+    # Normalize to NFC once, at this single entry boundary, so every analyzer
+    # downstream sees consistent codepoints. Vietnamese content can arrive in
+    # NFD (macOS filesystems, some editors); NFD and NFC compare unequal even
+    # though they render identically, and the vi profile's patterns are
+    # written against NFC.
+    content = vi_text.normalize(content)
     if path.suffix.lower() == '.html':
         frontmatter, body = extract_html_for_analysis(content)
     else:
@@ -2059,10 +2308,10 @@ def analyze_file(file_path: str) -> dict[str, Any]:
         'self_promotion': analyze_self_promotion(body),
         'readability': analyze_readability(plain_text, language),
         'sentences': sentences_info,
-        'ai_signals': analyze_ai_signals(plain_text, sentences_info),
-        'passive_voice': analyze_passive_voice(plain_text),
-        'transition_words': analyze_transition_words(plain_text),
-        'ai_trigger_words': analyze_ai_trigger_words(plain_text),
+        'ai_signals': analyze_ai_signals(plain_text, sentences_info, language),
+        'passive_voice': analyze_passive_voice(plain_text, language),
+        'transition_words': analyze_transition_words(plain_text, language),
+        'ai_trigger_words': analyze_ai_trigger_words(plain_text, language),
         'schema': analyze_schema(content),
         'links': analyze_links(body),
         'originality': analyze_originality(body, language),
@@ -2070,6 +2319,10 @@ def analyze_file(file_path: str) -> dict[str, Any]:
         'ai_citation_readiness': ai_citation_readiness,
         'social_meta': analyze_social_meta(content, frontmatter),
         'structured_data': analyze_structured_data(body),
+        # G3 (Phase G): register-drift check, Vietnamese only. None for every
+        # other language rather than a missing key, so callers can rely on
+        # the key always being present.
+        'vi_register': vi_register.analyze_register(body) if language == 'vi' else None,
         # Internal refs used by scoring (not included in output)
         '_body_text': body,
         '_raw_content': content,

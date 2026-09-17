@@ -28,8 +28,11 @@ import json
 import os
 import re
 import sys
-import unicodedata
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from vi_text import slugify as _vi_slugify  # noqa: E402
 
 TOC_BEGIN = "<!-- blog-hygiene:toc:begin -->"
 TOC_END = "<!-- blog-hygiene:toc:end -->"
@@ -38,11 +41,7 @@ DEFAULT_TOC_HEADING = "In this article"
 
 def slugify(text: str) -> str:
     """Convert heading text to a GitHub-style anchor slug (ASCII, lowercase)."""
-    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
-    text = text.lower()
-    text = re.sub(r"[^\w\s-]", "", text)
-    text = re.sub(r"[\s_]+", "-", text).strip("-")
-    return text
+    return _vi_slugify(text, fallback="")
 
 
 def fix_html_lazy_loading(html: str) -> tuple[str, int]:

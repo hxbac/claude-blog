@@ -11,6 +11,7 @@ description: >
   0-100 AI Citation Readiness score. Use when user says "geo", "ai
   citation", "ai optimization", "citation audit", "aeo", "perplexity
   optimization", "chatgpt citation".
+  Also use when the request is written in Vietnamese, for example "AI có trích dẫn bài không", "tối ưu cho AI", "xuất hiện trên ChatGPT", "AI Overviews".
 user-invokable: true
 argument-hint: "<file-path>"
 license: MIT

@@ -35,6 +35,10 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Optional
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from vi_text import slugify as _vi_slugify  # noqa: E402
+
 MAX_MD_BYTES = 4 * 1024 * 1024  # 4MB cap on a single markdown source
 REQUIRED_FRONTMATTER_KEYS = ("title", "description", "date", "author")
 # Markdown syntax fingerprints handled by python-markdown but NOT by the
@@ -159,11 +163,7 @@ img{max-width:100%;height:auto}
 
 
 def _slugify(text: str) -> str:
-    s = text.lower().strip()
-    s = re.sub(r"[^a-z0-9\s\-]", "", s)
-    s = re.sub(r"\s+", "-", s)
-    s = re.sub(r"-+", "-", s)
-    return s.strip("-") or "post"
+    return _vi_slugify(text, fallback="post")
 
 
 def _is_safe_url(value: str, *, media: bool = False) -> bool:
@@ -255,6 +255,22 @@ def _sanitize_body_html(raw_html: str) -> str:
     sanitizer.feed(raw_html)
     sanitizer.close()
     return "".join(sanitizer.out)
+
+
+def _detect_hero_filename(out_dir: Path) -> str:
+    """Pick the hero asset that is actually on disk.
+
+    generate_hero.py names the file after the bytes it downloaded, so a Pexels
+    or Unsplash hero lands as hero.jpg while a Gemini one lands as hero.png.
+    Defaulting to hero.png regardless produced an <img src> pointing at a file
+    that was never written, which surfaced only as an ERR_FILE_NOT_FOUND
+    console error in Gate 3 rather than as a render failure.
+    """
+    for ext in ("png", "jpg", "jpeg", "webp"):
+        candidate = out_dir / f"hero.{ext}"
+        if candidate.is_file():
+            return candidate.name
+    return "hero.png"
 
 
 def _validate_hero_filename(name: str) -> str:
@@ -484,6 +500,36 @@ def _validate_frontmatter(fm: dict, body: str) -> None:
         )
 
 
+def _stamp_heading_ids(html: str) -> str:
+    """Give every h2..h4 an id derived from its text, unless it already has one.
+
+    blog_hygiene.py builds its table of contents by slugifying heading text with
+    vi_text.slugify and linking to "#<slug>". Nothing was stamping matching ids
+    onto the headings themselves, so every TOC entry was a dead anchor and Gate 5
+    reported one "anchor link target missing" per entry. Using the same slugify
+    function here makes the two agree by construction rather than by convention.
+
+    Duplicate headings get a -2, -3 suffix, matching how anchor generators
+    conventionally disambiguate.
+    """
+    seen: dict[str, int] = {}
+
+    def add_id(match: "re.Match[str]") -> str:
+        opening, level, attrs, inner = match.group(0), match.group(1), match.group(2), match.group(3)
+        if re.search(r'\bid\s*=', attrs):
+            return opening
+        text = html_lib.unescape(re.sub(r"<[^>]+>", "", inner)).strip()
+        slug = _vi_slugify(text, fallback="")
+        if not slug:
+            return opening
+        seen[slug] = seen.get(slug, 0) + 1
+        if seen[slug] > 1:
+            slug = f"{slug}-{seen[slug]}"
+        return f"<h{level}{attrs} id=\"{slug}\">{inner}</h{level}>"
+
+    return re.sub(r"<h([234])([^>]*)>(.*?)</h\1>", add_id, html, flags=re.DOTALL)
+
+
 def _warn_if_stdlib_fallback_is_lossy(body: str) -> None:
     """If python-markdown is not importable AND the body contains syntax the
     stdlib fallback drops on the floor (tables, footnotes, def lists,
@@ -521,6 +567,8 @@ def _render_html(md_path: Path, out_dir: Path, hero_filename: str) -> Path:
     # the H1 is still recognised; count=1 so only the leading H1 is stripped,
     # never a legitimate mid-document H1.
     body_html = re.sub(r"\A\s*<h1\b[^>]*>.*?</h1>\s*", "", body_html, count=1, flags=re.DOTALL)
+    # Heading ids must exist before any table of contents can link to them.
+    body_html = _stamp_heading_ids(body_html)
     # Word count from rendered visible text. Must match what Gate 5 measures
     # from <article> so the wordCount injected into JSON-LD does not drift
     # past the 5% tolerance and falsely block delivery. Gate 5's _MetaParser
@@ -637,7 +685,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--md", required=True, help="Path to markdown source file")
     parser.add_argument("--out-dir", required=True, help="Output directory for .html and .pdf")
-    parser.add_argument("--hero", default="hero.png", help="Hero image filename (relative to out-dir)")
+    parser.add_argument(
+        "--hero",
+        default=None,
+        help="Hero image filename (relative to out-dir). Autodetected when omitted.",
+    )
     parser.add_argument("--pdf-engine", choices=["auto", "playwright", "weasyprint", "none"], default="auto")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -656,8 +708,10 @@ def main() -> int:
     out_dir = raw_out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    hero_filename = args.hero if args.hero else _detect_hero_filename(out_dir)
+
     try:
-        html_path = _render_html(md_path, out_dir, args.hero)
+        html_path = _render_html(md_path, out_dir, hero_filename)
     except Exception as e:
         print(f"ERROR: html render failed: {e}", file=sys.stderr)
         return 1

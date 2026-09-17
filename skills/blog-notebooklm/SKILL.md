@@ -9,6 +9,7 @@ description: >
   Use when user says "notebooklm", "notebook", "query notebook",
   "ask notebook", "notebook research", "source grounded research",
   "document query", "notebook library".
+  Also use when the request is written in Vietnamese, for example "NotebookLM", "hỏi từ tài liệu của tôi", "trả lời có dẫn nguồn".
 user-invokable: true
 argument-hint: "[ask|discover|library|setup|status|cleanup] [question-or-url]"
 license: MIT
