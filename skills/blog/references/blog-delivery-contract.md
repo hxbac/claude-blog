@@ -103,7 +103,7 @@ Items that do not apply (register for English, headings for a very short post) l
   - register drift: a minority register holding at least `max(15% of marked sentences, 3 sentences)` (`vi_register.py`)
   - chatbot residue left in the text (`ai_structure.py`)
   - fabricated statistic: a percentage attributed to a study or survey with no link or source, not marked illustrative
-  - missing legal disclosure (Phase K: the hook `draft_rubric.legal_disclosure_p0` exists and is called on every run, but returns nothing until Phase K implements it)
+  - missing legal disclosure (`draft_rubric.legal_disclosure_p0`, shared with Gate 5 via `scripts/vi_compliance.py`): `sponsored: true` or `affiliate: true` without a disclosure block, or `topic_class: health` mentioning thực phẩm chức năng without the not-a-medicine disclaimer. See `vi-compliance.md`
 - Any P0 issue from `editorial-heuristics.md` → BLOCK (a draft can score 95 and still have one load-bearing fabricated stat; P0 is an absolute filter independent of the numeric score)
 - Advisory style diagnostics never block and never infer authorship
 - All clear → proceed to Gate 5
@@ -132,6 +132,7 @@ When `lang` resolves to `vi`, the draft rubric already includes `vi_prose.py`'s 
 - Validate links with `HEAD` first, then fall back to `GET` with a small range request when servers block `HEAD`. Accept valid 2xx or 3xx responses, and allow documented 403 or 405 cases only through the per-project `external-links.allowed` config.
 - `og:image` URL resolves with the same SSRF, redirect, size, and timeout rules; this is the load-bearing social-preview asset.
 - Every `<a href="https://...">` resolves under the same policy, or is in the per-project `external-links.allowed` config.
+- Legal disclosure (Vietnamese posts, only when the frontmatter keys `sponsored`, `affiliate` or `topic_class` are set): same rule as the Gate 4 P0; the failure message is Vietnamese and contains the exact sentence to add. Optional YMYL author box keys `author_credential` and `reviewed_by` are rendered by `blog_render.py` as "Bài viết được tham vấn bởi ..." and never required.
 - Every `<code>filename.ext</code>` mention either references a real file in the project (verified via `Path.exists()`) or is wrapped in a "hypothetical example" marker.
 - `<link rel="canonical">` is set and well-formed.
 - JSON-LD `wordCount` matches actual `<article>` word count within ±5%. Catches the "I claimed 1,715 words but the body is 1,400" honesty defect.

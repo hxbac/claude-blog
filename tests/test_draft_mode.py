@@ -239,17 +239,17 @@ class TestP0Definition:
         body = BODY + "\n\nMình đo 40 đơn tháng trước và thấy 30 phần trăm bị hoàn."
         assert draft(write_post(tmp_path, body))["score"]["items"]["evidence"]["score"] == 14
 
-    def test_legal_disclosure_hook_is_a_documented_stub_that_feeds_p0(self, monkeypatch, tmp_path):
+    def test_legal_disclosure_hook_feeds_p0(self, monkeypatch, tmp_path):
         path = write_post(tmp_path, BODY)
         doc = draft_rubric.legal_disclosure_p0.__doc__
-        assert draft(path)["score"]["p0"] == []      # stub returns nothing today
+        assert draft(path)["score"]["p0"] == []      # no keys set: never a P0
         monkeypatch.setattr(
             draft_rubric, "legal_disclosure_p0",
             lambda fm, body, lang: [{"code": "legal_disclosure", "message": "Thiếu khai báo quảng cáo."}])
         result = draft(path)
         assert self.codes(result) == {"legal_disclosure"}
         assert result["score"]["gate4"]["ready"] is False
-        assert "Phase K" in doc and "STUB" in doc
+        assert "vi_compliance" in doc and "STUB" not in doc
 
     def test_p0_forces_gate4_closed_even_at_a_high_number(self, monkeypatch, tmp_path):
         path = write_post(tmp_path, BODY)

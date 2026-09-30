@@ -26,8 +26,8 @@ and the total is rescaled, it is never scored as a loss):
     no trust boilerplate in body   4
 
 P0 (blocks Gate 4 regardless of the number): register drift above the ratio,
-chatbot residue, fabricated statistic, missing legal disclosure (Phase K
-stub, see ``legal_disclosure_p0``).
+chatbot residue, fabricated statistic, missing legal disclosure (``legal_disclosure_p0``,
+shared with Gate 5 via ``vi_compliance``).
 
 Stdlib only. Messages are Vietnamese for ``lang: vi`` posts and English
 otherwise.
@@ -38,6 +38,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+import vi_compliance
 import vi_profile
 import vi_text
 
@@ -149,16 +150,17 @@ _TITLE_HOOKS_VI = re.compile(
 
 
 def legal_disclosure_p0(frontmatter: dict[str, Any], body: str, language: str) -> list[dict[str, Any]]:
-    """Phase K hook: missing legal disclosure on sponsored/affiliate/YMYL posts.
+    """Missing legal disclosure on sponsored/affiliate/health posts (Phase K).
 
-    DOCUMENTED STUB. Phase K (Vietnamese compliance) will implement the check
-    for ``sponsored: true``, ``affiliate: true`` and ``topic_class:`` health
-    posts (Advertising Law amendment effective 2026-01-01, Decree 147/2024,
-    Circular 09/2015/TT-BYT). Until then this returns no findings, so a P0
-    from this source is never fabricated. The hook is called on every scoring
-    run and any dict it returns ({'code', 'message'}) becomes a P0.
+    Delegates to ``vi_compliance.check``, the same implementation Gate 5 in
+    ``blog_preflight.py`` uses, so the two gates cannot disagree. Rules:
+    ``sponsored: true`` and ``affiliate: true`` need a disclosure block;
+    ``topic_class: health`` mentioning thực phẩm chức năng needs the
+    Circular 09/2015/TT-BYT disclaimer. Posts without those keys return no
+    findings. Each finding ({'code', 'message'}) becomes a P0. The message is
+    Vietnamese whatever ``language`` is: the sentence to add is Vietnamese.
     """
-    return []
+    return vi_compliance.check(frontmatter, body)
 
 
 # ---------------------------------------------------------------------------
@@ -537,7 +539,7 @@ def calculate_draft_score(analysis: dict[str, Any]) -> dict[str, Any]:
     else:
         add('no_trust_boilerplate', 4, 'Đạt.')
 
-    # Legal disclosure hook (Phase K stub) --------------------------------
+    # Legal disclosure (Phase K, shared with Gate 5) --------------------------------
     for finding in legal_disclosure_p0(fm, body, language):
         p0.append({'code': finding.get('code', 'legal_disclosure'), 'message': finding['message']})
         issue('compliance', 'high', finding['message'])
@@ -646,6 +648,8 @@ def prepublish_checklist(analysis: dict[str, Any]) -> list[dict[str, str]]:
         row('images_alt', (images['without_alt_text'] == 0) if images['count'] else None,
             'Ảnh có mô tả thay thế (alt) đầy đủ.', 'All images have alt text.'),
         row('legal_disclosure', None,
-            'Khai báo quảng cáo/tiếp thị liên kết theo luật (Phase K, chưa tự động kiểm tra).',
-            'Advertising/affiliate disclosure (Phase K, not yet automated).'),
+            'Khai báo quảng cáo/tiếp thị liên kết/khuyến cáo thực phẩm chức năng: đã kiểm tra tự động '
+            'ở Gate 4 (P0) và Gate 5 khi có sponsored/affiliate/topic_class.',
+            'Sponsored/affiliate/functional-food disclosure: checked automatically as a Gate 4 P0 and '
+            'in Gate 5 when sponsored/affiliate/topic_class are set.'),
     ]

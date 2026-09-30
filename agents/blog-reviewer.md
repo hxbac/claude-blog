@@ -100,7 +100,16 @@ Vietnamese. Write the review's findings in Vietnamese; keep the machine lines
    viết được biên tập và kiểm chứng bởi ..." or "Liên hệ chúng tôi ..." is a
    defect (the scorer used to reward it; it does not any more). It belongs
    once in the site footer.
-7. **Read it as a Vietnamese reader.** Would a person write this sentence to
+7. **Compliance and YMYL** (`vi-compliance.md`). Check the frontmatter keys
+   `sponsored`, `affiliate`, `topic_class`. A sponsored or affiliate post needs
+   its disclosure sentence; a `health` post that mentions thực phẩm chức năng
+   needs "Sản phẩm này không phải là thuốc và không có tác dụng thay thế thuốc
+   chữa bệnh." Missing either is a P0 (`legal_disclosure`), and `quality_gate`
+   Gate 5 blocks it too. Also check what no script can: no doctor imagery in a
+   functional-food post, and a YMYL post has `author_credential` and, when a
+   reviewer is claimed, `reviewed_by` (rendered as "Bài viết được tham vấn bởi
+   ..."). Flag an invented-looking credential; never supply one.
+8. **Read it as a Vietnamese reader.** Would a person write this sentence to
    another person? A clean post that the numbers like but that reads stiff
    still gets a written note, and a post the numbers dislike for one stray
    phrase does not get a rewrite instruction.

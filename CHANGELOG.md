@@ -23,8 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reviewer.
 - `scripts/sync_vi_tells.py`: writes and checks the generated Vietnamese tell
   table that claude-seo's `content_humanize.py --lang vi` uses.
-- Legal-disclosure P0 hook (`draft_rubric.legal_disclosure_p0`), a documented
-  stub until Phase K.
+- Phase K compliance: `scripts/vi_compliance.py` (one implementation for the
+  Gate 4 P0 `draft_rubric.legal_disclosure_p0` and Gate 5), frontmatter keys
+  `sponsored`, `affiliate`, `topic_class`; a sponsored or affiliate post with
+  no disclosure, or a health post mentioning thực phẩm chức năng without the
+  not-a-medicine disclaimer, is blocked with a Vietnamese message that carries
+  the sentence to add. `author_credential` and `reviewed_by` render an author
+  box ("Bài viết được tham vấn bởi ...") in `blog_render.py`. Reference:
+  `skills/blog/references/vi-compliance.md`.
 - Vietnamese sections in `agents/blog-reviewer.md` and `agents/blog-writer.md`.
 
 ### Changed

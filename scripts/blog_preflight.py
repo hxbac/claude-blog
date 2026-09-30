@@ -1117,6 +1117,26 @@ def _classify_back_button_behavior(observation: dict[str, Any]) -> dict[str, Any
     }
 
 
+def _compliance_check(draft_dir: Path, md_path: Path | None = None) -> dict[str, list[str]]:
+    """Vietnamese legal-disclosure check on the draft source (Phase K).
+
+    Same implementation as the Gate 4 P0 (``vi_compliance.check``). A draft
+    without the sponsored/affiliate/topic_class keys is never affected.
+    """
+    out: dict[str, list[str]] = {"violations": [], "warnings": []}
+    path = md_path if md_path is not None else _draft_markdown(draft_dir)[0]
+    if path is None:
+        return out
+    try:
+        import vi_compliance
+        raw = _read_text_no_follow(path)
+        fm, body = vi_compliance.parse_frontmatter(raw)
+        out["violations"] = [f["message"] for f in vi_compliance.check(fm, body)]
+    except (OSError, ValueError) as exc:
+        out["warnings"].append(f"compliance check skipped: {exc}")
+    return out
+
+
 def gate_5_asset_link_integrity(
     draft_dir: Path,
     slug: str | None = None,
@@ -1281,6 +1301,10 @@ def gate_5_asset_link_integrity(
             diff_pct = abs(declared_word_count - actual) / actual * 100
             if diff_pct > 5:
                 violations.append(f"JSON-LD wordCount {declared_word_count} differs from actual {actual} by {diff_pct:.1f}%")
+
+    compliance = _compliance_check(draft_dir, selected["md"][0] if selected["md"] else None)
+    violations.extend(compliance["violations"])
+    warnings.extend(compliance["warnings"])
 
     return _gate_result(
         5, "Asset + Link Integrity", not violations, violations, warnings,

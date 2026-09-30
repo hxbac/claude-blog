@@ -40,6 +40,14 @@ market is Vietnam, so assume `lang: vi`).
    person kinship words ("anh thợ mộc") are fine.
 3. **Frontmatter:** `title`, `description` (70-160 characters), `author` (a
    real person), `date` (not `datePublished`), `slug`, `canonical`, `lang: vi`.
+   Set `sponsored: true` / `affiliate: true` when the brief says so, and
+   `topic_class: health|finance|realestate|cosmetics|general`. For YMYL
+   (anything but `general`) add `author_credential` and `reviewed_by` only
+   with real, supplied values; never invent a credential or reviewer. Load
+   `vi-compliance.md`: a sponsored or affiliate post opens with the disclosure
+   sentence, and a health post that mentions thực phẩm chức năng ends with
+   "Sản phẩm này không phải là thuốc và không có tác dụng thay thế thuốc chữa
+   bệnh." Never use doctor imagery for a functional-food post.
 
 While writing Vietnamese:
 

@@ -118,7 +118,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <h1>{title_escaped}</h1>
 <p class="dek">{description_escaped}</p>
 <p class="byline"><strong>By {author_escaped}</strong> &middot; {published_human} &middot; {reading_time_min} min read &middot; {word_count} words</p>
-</header>
+{author_box}</header>
 <figure class="hero"><img src="{hero_filename}" alt="{og_image_alt_escaped}" width="1200" height="630"></figure>
 {body_html}
 <footer class="post-footer"><span>Published at <a href="{site_url_or_dash}">{site_name_escaped}</a></span><span>{published_human} &middot; {author_escaped}</span></footer>
@@ -138,6 +138,8 @@ article{max-width:740px;margin:0 auto;padding:3rem 1.5rem 5rem}
 h1{font-size:clamp(2rem,5vw,2.85rem);line-height:1.12;letter-spacing:-.025em;margin:0 0 1.1rem;font-weight:800}
 .dek{color:var(--muted);font-size:clamp(1.05rem,2.5vw,1.2rem);line-height:1.5;margin:0 0 1.75rem;max-width:60ch}
 .byline{color:var(--soft);font-size:.875rem;font-family:ui-monospace,monospace;margin:0 0 2.5rem}
+.author-box{font-size:.9375rem;color:var(--soft);margin:-1.75rem 0 2.5rem;line-height:1.5}
+.author-box strong{color:var(--text);font-weight:600}
 .byline strong{color:var(--text);font-weight:600}
 .hero{margin:0 0 2.5rem;background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:var(--shadow)}
 .hero img{display:block;width:100%;height:auto;aspect-ratio:1200/630;object-fit:cover}
@@ -434,6 +436,32 @@ def _inline(text: str) -> str:
     return text
 
 
+def _author_box(fm: dict) -> tuple[str, str]:
+    """YMYL author box (Phase K). Returns (html, plain text); both empty unless
+    ``author_credential`` or ``reviewed_by`` is present. Every value is escaped.
+
+    Vietnamese pattern: "<author>, <credential>. Bài viết được tham vấn bởi
+    <reviewed_by>." Other languages get the English equivalent.
+    """
+    credential = str(fm.get("author_credential", "") or "").strip()
+    reviewer = str(fm.get("reviewed_by", "") or "").strip()
+    if not credential and not reviewer:
+        return "", ""
+    vi = str(fm.get("lang", "")).lower().startswith("vi")
+    author = str(fm.get("author", "") or "").strip()
+    parts_html: list[str] = []
+    parts_text: list[str] = []
+    if credential:
+        who = author or ("Tác giả" if vi else "Author")
+        parts_html.append(f"<strong>{_safe_attr(who)}</strong>, {_safe_attr(credential)}.")
+        parts_text.append(f"{who}, {credential}.")
+    if reviewer:
+        lead = "Bài viết được tham vấn bởi" if vi else "Reviewed by"
+        parts_html.append(f"{lead} <strong>{_safe_attr(reviewer)}</strong>.")
+        parts_text.append(f"{lead} {reviewer}.")
+    return f'<p class="author-box">{" ".join(parts_html)}</p>\n', " ".join(parts_text)
+
+
 def _build_json_ld(fm: dict, word_count: int, og_image_url: str) -> str:
     data = {
         "@context": "https://schema.org",
@@ -448,6 +476,10 @@ def _build_json_ld(fm: dict, word_count: int, og_image_url: str) -> str:
         "keywords": ", ".join(fm.get("tags", [])) if isinstance(fm.get("tags"), list) else fm.get("tags", ""),
         "inLanguage": fm.get("lang", "en"),
     }
+    if str(fm.get("author_credential", "")).strip():
+        data["author"]["jobTitle"] = fm["author_credential"]
+    if str(fm.get("reviewed_by", "")).strip():
+        data["reviewedBy"] = {"@type": "Person", "name": fm["reviewed_by"]}
     if fm.get("canonical"):
         data["mainEntityOfPage"] = {"@type": "WebPage", "@id": fm["canonical"]}
     # HTML-safe JSON encoding: escape "</" as "<\/" so an attacker who controls
@@ -581,6 +613,9 @@ def _render_html(md_path: Path, out_dir: Path, hero_filename: str) -> Path:
     visible_text = re.sub(r"<[^>]+>", " ", visible_text)
     visible_text = html_lib.unescape(visible_text)
     word_count = len(re.findall(r"\b\w+\b", visible_text))
+    author_box_html, author_box_text = _author_box(fm)
+    # The box sits inside <article>, so Gate 5 counts its words; count them here too.
+    word_count += len(re.findall(r"\b\w+\b", author_box_text))
     reading_time = max(1, word_count // 200)
 
     canonical = fm.get("canonical", "")
@@ -606,6 +641,7 @@ def _render_html(md_path: Path, out_dir: Path, hero_filename: str) -> Path:
         kicker_escaped=_safe_attr(fm.get("kicker") or (fm.get("tags")[0].title() if isinstance(fm.get("tags"), list) and fm.get("tags") else "Article")),
         hero_filename=_safe_attr(hero_filename),
         body_html=body_html,
+        author_box=author_box_html,
         site_url_or_dash=_safe_attr(site_url or "#"),
         json_ld=_build_json_ld(fm, word_count, og_image),
         css=CSS,
