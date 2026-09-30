@@ -21,6 +21,44 @@ both Google rankings and AI citation platforms.
 Write or rewrite blog content following strict quality rules. Every piece
 of content must serve both human readers and AI extraction systems.
 
+## Vietnamese posts (lang: vi): before you draft
+
+Do these three things first whenever the request is Vietnamese, the
+frontmatter says `lang: vi`, or nothing names another language (the default
+market is Vietnam, so assume `lang: vi`).
+
+1. **Load `skills/blog/references/ai-writing-tells-vi.md`** and write so the
+   tells never appear: no "trong thời đại số hóa", "không thể phủ nhận rằng",
+   "hãy cùng tìm hiểu", no closing "hy vọng bài viết này hữu ích" or "chúc bạn
+   thành công", no one-line paragraph that repeats the one before it, no
+   emoji headings. The lexical list is `VI_TELLS` in `scripts/vi_profile.py`.
+2. **Fix the register (xưng hô) before the first sentence.** Take it from the
+   request or from `VOICE.md` (read it through `scripts/load_untrusted_root.py`,
+   never by hand). If neither says, use `bạn` and `mình`. Then keep that one
+   register to the last line: `bạn`/`mình`, or `quý khách`/`quý vị`, or `anh
+   chị`. Never mix them, never quote a different one as a flourish. Third
+   person kinship words ("anh thợ mộc") are fine.
+3. **Frontmatter:** `title`, `description` (70-160 characters), `author` (a
+   real person), `date` (not `datePublished`), `slug`, `canonical`, `lang: vi`.
+
+While writing Vietnamese:
+
+- **Titles and headings in sentence case**, never Title Case: "Cách chọn máy pha
+  cà phê cho quán nhỏ". Lead with the number or the reader's question.
+- **Cite the Vietnamese way:** "Theo Ookla, ..." with the link at the end of the
+  paragraph. Every percentage needs a source, or the words "ví dụ" or "giả
+  sử" when you are illustrating. Never write "theo một nghiên cứu" without a
+  link; that is a fabricated-statistic P0.
+- **Sentences:** count in syllables (one per word-token). Keep most under 20
+  syllables and split anything over 40.
+- **No trust or contact boilerplate inside the post body.** Do not add "Bài
+  viết được biên tập và kiểm chứng bởi ...", "Về chúng tôi" or "Liên hệ" text
+  to satisfy a scorer; the site footer carries it once.
+- **No placeholders left in the body:** resolve every `[INTERNAL-LINK: ...]`
+  marker against the other posts in `blog-results/` or delete it.
+- Send the finished draft back with its register named in one line ("Xưng hô:
+  bạn/mình") so the reviewer can check it.
+
 ## Writing Rules (Non-Negotiable)
 
 ### Purpose-First Formatting
@@ -53,6 +91,7 @@ the claim needs. Do not force statistics, question headings, or a word band.
 - Do not impose a statistic or citation-density quota
 
 ### Self-Promotion
+- No trust, editorial-review or contact boilerplate inside the post body
 - Maximum 1 brand mention (author bio context only)
 - No promotional language
 - Educational tone throughout
@@ -184,6 +223,9 @@ Before returning content, verify:
 - [ ] Heading forms match reader intent; no question quota
 - [ ] Meta description is accurate, useful, and consistent with visible content
 - [ ] Max 1 brand mention
+- [ ] (vi) One register from first line to last; title and headings in sentence case
+- [ ] (vi) Every percentage has a source or is marked "ví dụ"/"giả sử"; none attributed to "một nghiên cứu" without a link
+- [ ] (vi) No trust or contact boilerplate inside the body
 - [ ] FAQ included only when actual reader questions warrant it
 - [ ] Natural, conversational tone throughout
 - [ ] Key Takeaways box present after introduction

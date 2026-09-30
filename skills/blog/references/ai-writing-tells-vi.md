@@ -154,11 +154,33 @@ trắng-gạch ngang-gạch ngang-khoảng trắng đã bị cấm trong toàn b
 `docs/`, `skills/`, `agents/`, `scripts/`, `tests/` của kho này. Tài liệu
 này không lặp lại quy tắc đó; xem `scripts/lint_prose.py`.
 
+## Quy ước khi viết bài tiếng Việt (Phase J)
+
+Bốn quy ước này được `analyze_blog.py --mode draft` đo, nên viết đúng ngay từ
+đầu thay vì sửa sau.
+
+1. **Một cách xưng hô cho cả bài.** `bạn` và `mình` (ngang hàng), `quý khách`
+   và `quý vị` (trang trọng), `anh chị` (lịch sự). Lấy từ yêu cầu của người
+   dùng hoặc `VOICE.md`; nếu không có thì dùng `bạn` và `mình`. Nhắc đến người
+   thứ ba ("anh thợ mộc", "chị khách") hoặc trích một câu trong ngoặc kép thì
+   không tính là đổi xưng hô.
+2. **Trích nguồn theo lối Việt.** Viết "Theo Ookla, tốc độ tải xuống trung
+   bình ở Việt Nam là ..." và đặt liên kết ở cuối đoạn, không chèn ngoặc
+   vuông kèm ngày truy cập giữa câu. Con số nào cũng cần nguồn; nếu là giả
+   định thì ghi rõ "ví dụ" hoặc "giả sử".
+3. **Tiêu đề viết như một câu.** Chỉ viết hoa chữ đầu và tên riêng: "Cách chọn
+   máy pha cà phê cho quán nhỏ", không phải "Cách Chọn Máy Pha Cà Phê Cho
+   Quán Nhỏ". Viết hoa từng chữ là dấu hiệu máy viết.
+4. **Không chèn giới thiệu hay liên hệ vào thân bài.** "Bài viết được biên tập
+   và kiểm chứng bởi ...", "Liên hệ chúng tôi ..." chỉ đặt một lần ở chân
+   trang website.
+
 ## Những gì không đưa vào đây
 
 Các dấu hiệu mang tính từ vựng của tiếng Việt (ví dụ "trong thời đại số
-hóa", "không thể phủ nhận rằng") thuộc phạm vi `vi_profile.py` và
-`analyze_blog.py` (G1 đến G3 của Phase G), không thuộc tài liệu này. Tài
+hóa", "không thể phủ nhận rằng") chỉ nằm ở một chỗ: `VI_TELLS` trong
+`vi_profile.py`. `vi_prose.py`, `analyze_blog.py`, `ai_structure.py` và bộ
+làm sạch của claude-seo đều đọc từ đó; không thêm danh sách thứ hai ở đây. Tài
 liệu này chỉ tập trung vào các mẫu hình **cấu trúc**, độc lập với ngôn ngữ
 và từ vựng, giống như cách `humanizer/SKILL.md` phân biệt hai loại dấu
 hiệu.

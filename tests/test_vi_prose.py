@@ -31,7 +31,8 @@ def test_good_fixture_is_clean():
 
 
 def test_register_drift_detected():
-    text = "Quý khách vui lòng liên hệ. Các bạn cũng có thể tự làm."
+    text = ("Quý khách vui lòng liên hệ. Quý vị nên đọc kỹ. Quý khách sẽ nhận được hóa đơn. "
+            "Các bạn cũng có thể tự làm. Bạn nên thử trước. Mình khuyên bạn đo lại.")
     report = vi_prose.lint_text(text)
     assert any(f["type"] == "register_drift" for f in report["findings"])
 

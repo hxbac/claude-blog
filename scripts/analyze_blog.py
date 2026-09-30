@@ -47,6 +47,9 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import ai_structure  # noqa: E402
+import draft_rubric  # noqa: E402
+import vi_profile  # noqa: E402
 import vi_register  # noqa: E402
 import vi_text  # noqa: E402
 from vi_profile import VI_PROFILE  # noqa: E402
@@ -1415,7 +1418,7 @@ def analyze_originality(content: str, language: str = 'en') -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def analyze_engagement(content: str) -> dict[str, Any]:
+def analyze_engagement(content: str, language: str = 'en') -> dict[str, Any]:
     """Detect questions in body text, examples, call-to-action patterns."""
     # Questions in body (not in headings)
     body_lines = [line for line in content.split('\n') if not line.strip().startswith('#')]
@@ -1429,6 +1432,12 @@ def analyze_engagement(content: str) -> dict[str, Any]:
         r'(?i)\bhere\'s (?:an|a) example\b',
     ]
     example_count = sum(len(re.findall(p, content)) for p in example_patterns)
+    if language == 'vi':
+        # The English markers never match Vietnamese prose (Phase J).
+        example_count += sum(
+            len(re.findall(p, content, re.IGNORECASE))
+            for p in VI_PROFILE.get('example_patterns', ())
+        )
 
     return {
         'questions_in_text': questions_in_text,
@@ -2249,8 +2258,44 @@ def calculate_score(analysis: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def analyze_file(file_path: str) -> dict[str, Any]:
-    """Analyze a single blog file with all analyzers."""
+def _resolve_mode(mode: str | None, suffix: str) -> str:
+    """``auto`` scores a markdown draft in draft mode (no site context exists
+    for it) and a rendered ``.html`` page with the full rubric."""
+    if mode in ('draft', 'full'):
+        return mode
+    return 'full' if suffix.lower() in ('.html', '.htm') else 'draft'
+
+
+def _lexical_tells(plain_text: str, language: str, ai_signals: dict[str, Any],
+                   triggers: dict[str, Any]) -> dict[str, Any]:
+    """Density of scored lexical tells, per 1,000 syllables (vi) or words."""
+    if language == 'vi':
+        hits = vi_profile.scan_tells(plain_text)
+        units = max(vi_text.count_syllables(plain_text), 1)
+        return {
+            'model': 'vi_profile.scan_tells', 'unit': 'âm tiết',
+            'count': len(hits), 'density_per_1000': round(len(hits) / units * 1000, 2),
+            'items': [{'match': h['match'], 'id': h['id'], 'tier': h['tier'], 'line': h['line']}
+                      for h in hits],
+        }
+    words = max(len(plain_text.split()), 1)
+    items = [{'match': p['phrase'], 'count': p['count']} for p in ai_signals['ai_phrases_found']]
+    items += [{'match': t['word'], 'count': t['count']} for t in triggers['found']]
+    count = ai_signals['ai_phrase_count'] + triggers['trigger_count']
+    return {
+        'model': 'profile_lists', 'unit': 'words', 'count': count,
+        'density_per_1000': round(count / words * 1000, 2), 'items': items,
+    }
+
+
+def analyze_file(file_path: str, mode: str | None = 'full') -> dict[str, Any]:
+    """Analyze a single blog file with all analyzers.
+
+    ``mode`` is ``full`` (the published-page rubric, the API default so
+    existing callers keep their behavior), ``draft`` (prose rubric plus a
+    pre-publish checklist, Phase J) or ``auto`` (draft for markdown, full for
+    HTML). The command line defaults to ``auto``.
+    """
     path = Path(file_path)
     if not path.exists():
         return {'error': f'File not found: {file_path}'}
@@ -2271,6 +2316,7 @@ def analyze_file(file_path: str) -> dict[str, Any]:
         frontmatter = extract_frontmatter(content)
         body = strip_frontmatter(content)
     language = _detect_language(frontmatter, body)
+    mode = _resolve_mode(mode, path.suffix)
 
     # Strip markdown formatting for plain-text analysis
     plain_text = _plain_text_for_analysis(body)
@@ -2315,7 +2361,7 @@ def analyze_file(file_path: str) -> dict[str, Any]:
         'schema': analyze_schema(content),
         'links': analyze_links(body),
         'originality': analyze_originality(body, language),
-        'engagement': analyze_engagement(body),
+        'engagement': analyze_engagement(body, language),
         'ai_citation_readiness': ai_citation_readiness,
         'social_meta': analyze_social_meta(content, frontmatter),
         'structured_data': analyze_structured_data(body),
@@ -2323,15 +2369,30 @@ def analyze_file(file_path: str) -> dict[str, Any]:
         # other language rather than a missing key, so callers can rely on
         # the key always being present.
         'vi_register': vi_register.analyze_register(body) if language == 'vi' else None,
+        # Phase J: structural AI tells (ai_structure.py), language read from the
+        # frontmatter via the resolved profile, and the lexical tell density.
+        'ai_structure': ai_structure.analyze(
+            content if path.suffix.lower() != '.html' else body,
+            language if language in ('en', 'vi') else 'en',
+        ),
         # Internal refs used by scoring (not included in output)
         '_body_text': body,
+        '_plain_text': plain_text,
         '_raw_content': content,
     }
+    analysis['lexical_tells'] = _lexical_tells(
+        plain_text, language, analysis['ai_signals'], analysis['ai_trigger_words']
+    )
+    analysis['mode'] = mode
 
-    analysis['score'] = calculate_score(analysis)
+    analysis['score'] = (
+        draft_rubric.calculate_draft_score(analysis) if mode == 'draft'
+        else calculate_score(analysis)
+    )
 
     # Remove internal-only keys before returning
     analysis.pop('_body_text', None)
+    analysis.pop('_plain_text', None)
     analysis.pop('_raw_content', None)
 
     return analysis
@@ -2348,6 +2409,8 @@ def _format_markdown(result: dict[str, Any]) -> str:
         return f"## Error\n\n{result['error']}"
 
     score = result['score']
+    if score.get('mode') == 'draft':
+        return _format_markdown_draft(result)
     lines: list[str] = []
     filename = Path(result['file']).name
 
@@ -2437,6 +2500,72 @@ def _format_markdown(result: dict[str, Any]) -> str:
     return '\n'.join(lines)
 
 
+def _format_markdown_draft(result: dict[str, Any]) -> str:
+    """Draft-mode report. Vietnamese labels for ``lang: vi`` posts."""
+    score = result['score']
+    vi = result.get('language') == 'vi'
+    filename = Path(result['file']).name
+    gate = score['gate4']
+    lines = [
+        f"## {'Chấm điểm bản nháp' if vi else 'Draft Quality Report'}: {filename}",
+        '',
+        f"### {'Điểm bản nháp' if vi else 'Draft score'}: {score['total']}/100 - {score['rating']}",
+        '',
+    ]
+    if gate['ready']:
+        lines.append('Đạt Gate 4: điểm >= 85 và không có lỗi P0.' if vi
+                     else 'Passes Gate 4: score >= 85 and zero P0.')
+    else:
+        why = []
+        if score['total'] < gate['min_score']:
+            why.append(f"điểm {score['total']} < {gate['min_score']}" if vi
+                       else f"score {score['total']} < {gate['min_score']}")
+        if gate['p0_count']:
+            why.append(f"{gate['p0_count']} lỗi P0" if vi else f"{gate['p0_count']} P0")
+        lines.append(('Chưa đạt Gate 4: ' if vi else 'Blocked at Gate 4: ') + ', '.join(why) + '.')
+    lines.append('')
+
+    if score['p0']:
+        lines.append('### P0 (chặn Gate 4)' if vi else '### P0 (blocks Gate 4)')
+        for p in score['p0']:
+            lines.append(f"- [{p['code']}] {p['message']}")
+        lines.append('')
+
+    lines.append('| Mục | Điểm | Tối đa |' if vi else '| Item | Score | Max |')
+    lines.append('|---|---:|---:|')
+    for name, item in score['items'].items():
+        label = draft_rubric.ITEM_LABELS_VI.get(name, name) if vi else name
+        if item['applicable']:
+            lines.append(f"| {label} | {item['score']} | {item['max']} |")
+        else:
+            lines.append(f"| {label} | - | (không tính) |" if vi else f"| {label} | - | (excluded) |")
+    lines.append('')
+
+    ais = result.get('ai_structure') or {}
+    lines.append('### Cấu trúc câu chữ (ai_structure)' if vi else '### Structural AI tells (ai_structure)')
+    lines.append(f"- cluster_score: {ais.get('cluster_score', 0)} "
+                 f"({ais.get('finding_count', 0)} {'dấu hiệu' if vi else 'findings'}, lang={ais.get('lang')})")
+    for sec in (ais.get('cluster_sections') or [])[:3]:
+        lines.append(f"- {sec['section']}: {', '.join(sec['tells'])}")
+    lines.append('')
+
+    lines.append('### Vấn đề cần sửa' if vi else '### Issues')
+    if score['issues']:
+        for iss in score['issues']:
+            lines.append(f"- [{iss['severity'].upper()}] {iss['issue']}")
+    else:
+        lines.append('Không có.' if vi else 'None.')
+    lines.append('')
+
+    lines.append('### Danh sách trước khi đăng (không tính điểm)' if vi
+                 else '### Pre-publish checklist (not scored)')
+    mark = {'ok': '[x]', 'todo': '[ ]', 'unknown': '[ ]'}
+    for row in score['prepublish_checklist']:
+        lines.append(f"- {mark[row['status']]} {row['note']}")
+    lines.append('')
+    return '\n'.join(lines)
+
+
 def _format_table(result: dict[str, Any]) -> str:
     """Format analysis result as a compact table."""
     if 'error' in result:
@@ -2444,6 +2573,10 @@ def _format_table(result: dict[str, Any]) -> str:
 
     score = result['score']
     filename = Path(result['file']).name
+    if score.get('mode') == 'draft':
+        gate = 'GATE4-OK' if score['gate4']['ready'] else 'GATE4-BLOCKED'
+        return (f'{filename}  [draft {score["total"]}/100 {score["rating"]}] {gate} '
+                f'P0={score["gate4"]["p0_count"]}')
     cats = score['categories']
 
     lines: list[str] = []
@@ -2494,6 +2627,10 @@ def _format_category_detail(result: dict[str, Any], category: str) -> str:
 
     score = result['score']
     cat_map = {
+        'voice': 'voice_and_register',
+        'search': 'search_basics',
+        'utility': 'reader_utility',
+        'hygiene': 'draft_hygiene',
         'content': 'content_quality',
         'seo': 'seo_optimization',
         'eeat': 'eeat_signals',
@@ -2512,6 +2649,11 @@ def _format_category_detail(result: dict[str, Any], category: str) -> str:
         return f"Unknown category: '{category}'. Available: {available}"
 
     cat_labels = {
+        'voice_and_register': 'Voice and Register',
+        'evidence': 'Evidence',
+        'search_basics': 'Search Basics',
+        'reader_utility': 'Reader Utility',
+        'draft_hygiene': 'Draft Hygiene',
         'content_quality': 'Content Quality',
         'seo_optimization': 'SEO Optimization',
         'eeat_signals': 'E-E-A-T Signals',
@@ -2545,12 +2687,12 @@ def _format_category_detail(result: dict[str, Any], category: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _process_batch(directory: Path, sort_key: str = 'score') -> dict[str, Any]:
+def _process_batch(directory: Path, sort_key: str = 'score', mode: str | None = 'auto') -> dict[str, Any]:
     """Analyze all blog files in a directory."""
     results: list[dict[str, Any]] = []
     for ext in ['*.md', '*.mdx', '*.html']:
         for f in directory.glob(ext):
-            results.append(analyze_file(str(f)))
+            results.append(analyze_file(str(f), mode))
 
     # Sort
     if sort_key == 'score':
@@ -2575,10 +2717,11 @@ def main(args: argparse.Namespace) -> None:
     category = getattr(args, 'category', None)
     fix_mode = getattr(args, 'fix', False)
     sort_key = getattr(args, 'sort', 'score')
+    mode = getattr(args, 'mode', 'auto')
 
     # Batch mode
     if path.is_dir() and getattr(args, 'batch', False):
-        batch_result = _process_batch(path, sort_key)
+        batch_result = _process_batch(path, sort_key, mode)
 
         if fmt == 'markdown':
             for r in batch_result['results']:
@@ -2606,7 +2749,7 @@ def main(args: argparse.Namespace) -> None:
             print(f"ERROR: {error['error']}")
         sys.exit(1)
 
-    result = analyze_file(str(path))
+    result = analyze_file(str(path), mode)
 
     # Category detail mode
     if category:
@@ -2659,6 +2802,9 @@ Scoring Categories (100 points):
   Technical Elements     15 pts   Schema, images, structured data, speed
   AI Citation Readiness  15 pts   Citability, Q&A, entities, extraction
 
+Draft mode (default for .md): prose-only rubric, site-level items moved to a
+pre-publish checklist. Gate 4 passes at draft score >= 85 and zero P0.
+
 Rating Bands:
   90-100  Exceptional    80-89  Strong    70-79  Acceptable
   60-69   Below Standard   <60  Rewrite
@@ -2681,6 +2827,10 @@ Optional dependencies (graceful degradation):
                              '(content, seo, eeat, technical, ai)')
     parser.add_argument('--fix', action='store_true',
                         help='Output prioritized list of specific fixes')
+    parser.add_argument('--mode', choices=['auto', 'draft', 'full'], default='auto',
+                        help='draft: score the prose of an unpublished draft and list site-level '
+                             'items as a pre-publish checklist; full: the published-page rubric; '
+                             'auto (default): draft for .md/.mdx, full for .html')
 
     args = parser.parse_args()
 

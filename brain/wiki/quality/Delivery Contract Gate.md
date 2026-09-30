@@ -40,7 +40,7 @@ Required inputs are the draft folder, canonical `.md` source, rendered `.html`, 
 | 1. Capability Discovery | Available tools, required agents, env-key names only, helper scripts, project context files, and a valid hero-image path or permitted generation path. | Block when no local hero or allowed hero source exists, or when the `blog-reviewer` agent is unavailable. | `capabilities.json` | Orchestrator |
 | 2. Required Artifacts | Canonical `.md`, self-contained `.html`, rendered `.pdf`, and local `hero.png` or `hero.jpg`. | Block when any required artifact is missing, divergent, or outside the draft folder. | Rendered draft package | Content operator |
 | 3. Visual Verification | Headless render at mobile, tablet, and desktop widths, screenshots, console check, SVG or figure bounds check, dark-mode check, and valid BlogPosting JSON-LD. | Block on console errors, broken JSON-LD, visual overflow, failed dark-mode render, or unavailable strict renderer. | `preview/*.png` plus visual diagnostics | Visual reviewer |
-| 4. Content Review | `blog-reviewer` report against the rendered HTML, five-category editorial-readiness score, P0 scan, and descriptive style diagnostics. | Block when the score is below 90/100 or any P0 issue exists. Burstiness, phrase matches, TTR, and purported authorship percentages remain descriptive and non-blocking. | `review.md` | Quality reviewer |
+| 4. Content Review | `blog-reviewer` report against the rendered HTML, five-category editorial-readiness score, P0 scan, and descriptive style diagnostics. | Block when the draft-mode score is below 85/100 or any P0 issue exists. Burstiness, phrase matches, TTR, and purported authorship percentages remain descriptive and non-blocking. | `review.md` | Quality reviewer |
 | 5. Link And Asset Integrity | Every image, link, canonical URL, social image, schema reference, and declared word count is checked under safe URL rules. | Block on unresolved images, unsafe URLs, broken required links, or schema mismatch. Record declared word-count mismatches as manifest-integrity observations; completeness follows reader intent and is not blocked by length. | `preflight-report.json` | Delivery owner |
 
 ## Blocking Rules
@@ -48,7 +48,7 @@ Required inputs are the draft folder, canonical `.md` source, rendered `.html`, 
 All gates run sequentially. The first failed gate halts later checks and marks
 the package blocked under strict mode. A blocked state is required when a
 source is missing for a current claim, when an AI inclusion guarantee appears,
-when the reviewer score is below 90, when a P0 exists, when required artifacts
+when the draft-mode score is below 85, when a P0 exists, when required artifacts
 are absent, or when a URL or asset check fails. A ready label is allowed only
 after all five gates pass and the packet includes owner, source map, confidence
 label, and rollback trigger.
@@ -83,7 +83,7 @@ If the packet lacks generative AI reporting evidence from `g-genai-reports`, rec
 - A ready label appears before all five gates pass.
 - A writer presents `.md` only when `.html`, `.pdf`, and hero are required.
 - Visual overflow is waived without `--no-strict` and a named owner.
-- Reviewer output is treated as advisory after a score below 90 or any P0.
+- Reviewer output is treated as advisory after a score below 85 or any P0.
 - GSC evidence is assumed because the client has Search Console.
 - AI Overview reporting is claimed without `g-genai-reports`.
 - A broken link or unresolved image is hidden as a styling issue.

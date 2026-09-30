@@ -14,7 +14,8 @@ Writer-specific companion to `skills/blog/references/blog-delivery-contract.md`.
    - Require markdown, HTML, PDF, and a local hero asset when the deliverable requires a hero.
 3. Content review:
    - Dispatch the `blog-reviewer` agent with the rendered HTML.
-   - Require score 90/100 or higher and zero P0 issues.
+   - Require a draft-mode score of 85/100 or higher and zero P0 issues (`python3 scripts/analyze_blog.py <slug>.md --mode draft`; Gate 4 re-runs it and blocks on it).
+   - For `lang: vi`, load `skills/blog/references/ai-writing-tells-vi.md` and hold one register (xưng hô) for the whole post before drafting.
    - Save the review to `<folder>/review.md` ending with `BLOCKING: true|false (reason)`.
 4. Visual and asset gates:
    - Run `python3 scripts/blog_preflight.py --draft <folder> --strict`.

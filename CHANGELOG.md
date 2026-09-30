@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Draft-mode rubric (`scripts/draft_rubric.py`, `analyze_blog.py --mode draft`,
+  the CLI default for `.md`): scores what a draft controls (register, lexical
+  tells, structural cluster, sentence length against the 20-syllable threshold,
+  evidence discipline, title convention, title and meta length, headings,
+  reader utility, frontmatter, no trust boilerplate in the body). Site-level
+  items (internal links, about and contact, schema, Open Graph, crawler
+  access, live canonical, image alt, legal disclosure) are a pre-publish
+  checklist and are outside the denominator. Items that do not apply leave the
+  denominator instead of counting as losses.
+- `ai_structure.py` is wired into `analyze_blog.py` (key `ai_structure`) and
+  reads `lang:` from the frontmatter; surfaced in `blog-seo-check` and the
+  reviewer.
+- `scripts/sync_vi_tells.py`: writes and checks the generated Vietnamese tell
+  table that claude-seo's `content_humanize.py --lang vi` uses.
+- Legal-disclosure P0 hook (`draft_rubric.legal_disclosure_p0`), a documented
+  stub until Phase K.
+- Vietnamese sections in `agents/blog-reviewer.md` and `agents/blog-writer.md`.
+
+### Changed
+
+- Gate 4 now requires a draft-mode score of at least 85 and zero P0 (was a
+  reviewer score of 90 on the published-page rubric). `blog_preflight.py`
+  re-runs the draft analyzer and blocks on it. P0: register drift above the
+  ratio, chatbot residue, fabricated statistic, missing legal disclosure.
+- `vi_register.py` is the only register implementation and `vi_prose.py`
+  imports it. Frontmatter, code, quoted spans and blockquotes are ignored; bare
+  `anh` and `chị` are no longer markers; `các bạn` counts as peer; drift needs
+  the minority register to hold `max(15% of marked sentences, 3 sentences)`.
+- `vi_profile.py` (`VI_TELLS`) is the sole source of Vietnamese lexical tells;
+  `vi_prose.py`, `analyze_blog.py` and `ai_structure.py` read it. A first-line
+  "Dưới đây là ..." is chatbot residue; the same words mid-post are not.
+- `analyze_blog.analyze_file` keeps `mode='full'` as its Python default so
+  existing callers do not change; the command line defaults to `auto`.
+
+### Fixed
+
+- Ordinary human Vietnamese no longer trips the register P0 (author "Lan Anh",
+  "anh thợ mộc", a quoted "quý khách"). Findings A1, A2, A3, A4, A5 of the
+  2026-09-17 review.
+
 ## [2.2.0] - 2026-08-26
 
 ### Added

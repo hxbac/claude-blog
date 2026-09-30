@@ -1299,9 +1299,84 @@ def gate_5_asset_link_integrity(
     )
 
 
+#: Gate 4 threshold (Phase J): the DRAFT-mode score must reach this and carry
+#: zero P0. The 100-point published-page rubric is no longer the gate for a
+#: draft; it measured internal links, schema and OG tags a draft cannot have.
+GATE4_MIN_SCORE = 85
+
+
+def _draft_markdown(draft_dir: Path) -> tuple[Optional[Path], Optional[str]]:
+    """Return (path, note): the one source .md in the draft folder."""
+    skip = {"review.md", "readme.md"}
+    candidates = sorted(
+        p for p in draft_dir.glob("*.md")
+        if p.is_file() and not p.is_symlink() and p.name.lower() not in skip
+    )
+    if not candidates:
+        return None, "no <slug>.md in the draft folder; draft score not machine-verified"
+    if len(candidates) == 1:
+        return candidates[0], None
+    named = [p for p in candidates if p.stem == draft_dir.name]
+    if len(named) == 1:
+        return named[0], None
+    return None, "more than one .md in the draft folder; draft score not machine-verified"
+
+
+def draft_score_check(draft_dir: Path) -> dict:
+    """Run `analyze_blog.py --mode draft` on the draft source.
+
+    Returns {'checked': bool, 'violations': [...], 'warnings': [...],
+    'summary': {...}}. Import is lazy so a broken analyzer surfaces as a Gate 4
+    violation and not as an import crash of the whole preflight.
+    """
+    path, note = _draft_markdown(draft_dir)
+    if path is None:
+        return {"checked": False, "violations": [], "warnings": [note], "summary": None}
+    try:
+        import analyze_blog
+        result = analyze_blog.analyze_file(str(path), "draft")
+    except Exception as exc:  # noqa: BLE001 - report, do not crash the gate runner
+        return {"checked": False, "violations": [f"draft scoring failed: {exc}"], "warnings": [], "summary": None}
+    if "error" in result:
+        return {"checked": False, "violations": [f"draft scoring failed: {result['error']}"],
+                "warnings": [], "summary": None}
+    score = result["score"]
+    violations: list[str] = []
+    if score["total"] < GATE4_MIN_SCORE:
+        if result.get("language") == "vi":
+            violations.append(
+                f"Điểm bản nháp {score['total']}/100 (analyze_blog.py --mode draft) "
+                f"thấp hơn ngưỡng {GATE4_MIN_SCORE}"
+            )
+        else:
+            violations.append(
+                f"draft score {score['total']}/100 (analyze_blog.py --mode draft) is below {GATE4_MIN_SCORE}"
+            )
+    for p0 in score["p0"]:
+        violations.append(f"P0 {p0['code']}: {p0['message']}")
+    return {
+        "checked": True,
+        "violations": violations,
+        "warnings": [],
+        "summary": {
+            "file": path.name,
+            "total": score["total"],
+            "p0_count": len(score["p0"]),
+            "p0_codes": sorted({p["code"] for p in score["p0"]}),
+            "ready": score["gate4"]["ready"],
+        },
+    }
+
+
 def gate_4_content_review(draft_dir: Path) -> dict:
     """Check that the blog-reviewer agent has run and emitted review.md
     with `BLOCKING: false`, a matching Nonce, and a machine-checkable score.
+
+    Phase J: the bar is a DRAFT-mode score of at least 85 with zero P0, checked
+    twice: the reviewer's `Overall Score` and the analyzer's own
+    `--mode draft` run on the draft source. P0 is register drift above the
+    ratio, chatbot residue, a fabricated statistic, or a missing legal
+    disclosure (the Phase K hook, a documented stub until Phase K lands).
 
     Editorial style diagnostics such as phrase counts, type-token ratio, and
     sentence-length variance are never authorship classifiers or blocking
@@ -1373,18 +1448,26 @@ def gate_4_content_review(draft_dir: Path) -> dict:
         score = int(score_match.group(1))
         if score < 0 or score > 100:
             metric_violations.append(f"review overall score {score}/100 is outside 0..100")
-        elif score < 90:
-            metric_violations.append(f"review overall score {score}/100 is below 90")
+        elif score < GATE4_MIN_SCORE:
+            metric_violations.append(f"review overall score {score}/100 is below {GATE4_MIN_SCORE}")
 
     if re.search(r"\bP0\b", text, re.IGNORECASE) and not re.search(r"\b(no|zero)\s+P0\b", text, re.IGNORECASE):
         metric_violations.append("review mentions P0 without a no/zero P0 clearance")
 
+    draft_check = draft_score_check(draft_dir)
+    metric_violations.extend(draft_check["violations"])
+
     if metric_violations:
-        return _gate_result(4, "Content Review", False, metric_violations, blocking=False, reason=reason, score=score)
+        return _gate_result(
+            4, "Content Review", False, metric_violations,
+            warnings=draft_check["warnings"],
+            blocking=False, reason=reason, score=score, draft_score=draft_check["summary"],
+        )
 
     return _gate_result(
         4, "Content Review", True, [],
-        blocking=False, reason=reason, score=score,
+        warnings=draft_check["warnings"],
+        blocking=False, reason=reason, score=score, draft_score=draft_check["summary"],
     )
 
 

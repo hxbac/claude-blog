@@ -106,7 +106,7 @@ Each sub-skill is a standalone Claude Code skill with its own:
 
 | Sub-Skill | Responsibility | Introduced |
 |-----------|----------------|------------|
-| blog-write | New article generation with full optimization (v1.9.0: iterates through 5-gate delivery contract until score >= 90 and zero P0, max 3 iterations) | v1.0.0 |
+| blog-write | New article generation with full optimization (v1.9.0: iterates through 5-gate delivery contract until draft score >= 85 and zero P0, max 3 iterations) | v1.0.0 |
 | blog-rewrite | Existing post optimization preserving author voice (v1.9.0: same delivery contract) | v1.0.0 |
 | blog-analyze | Quality audit with 5-category 100-point scoring | v1.0.0 |
 | blog-brief | Content brief generation with research | v1.0.0 |
@@ -338,7 +338,7 @@ AI Citation (15 pts)      ###############---------------
 | Score | Rating | Action |
 |-------|--------|--------|
 | 90-100 | Exceptional | Publish as-is (v1.9.0 contract delivers GREEN) |
-| 80-89 | Strong | Minor tweaks; orchestrator iterates if Gate 4 wants 90+ |
+| 80-89 | Strong | Minor tweaks; orchestrator iterates if Gate 4 wants 85+ on the draft rubric |
 | 70-79 | Acceptable | Notable gaps; iterate |
 | 60-69 | Below Standard | Significant improvements required |
 | < 60 | Rewrite | Full rewrite recommended |

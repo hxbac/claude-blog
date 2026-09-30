@@ -20,7 +20,7 @@
 
 **claude-blog is a Claude Code skill suite that writes, optimizes, audits, localizes, and refreshes blog content at scale.** Every article is evaluated for Google-aligned usefulness and internal AI citation readiness heuristics. Version 2.2.0 was prepared on 2026-08-26.
 
-The core promise is simple: the user is never the first reviewer. A 5-gate Blog Delivery Contract scores every draft against a 100-point rubric, blocks delivery below 90, verifies artifacts and links, and iterates up to 3 times before escalation.
+The core promise is simple: the user is never the first reviewer. A 5-gate Blog Delivery Contract scores every draft against a 100-point rubric, blocks delivery below a draft score of 85, verifies artifacts and links, and iterates up to 3 times before escalation.
 
 This is the public, MIT-licensed distribution at
 [`AgriciDaniel/claude-blog`](https://github.com/AgriciDaniel/claude-blog).
@@ -128,7 +128,7 @@ Every `/blog write` and `/blog rewrite` result must pass the delivery contract b
 | 1. Capability Discovery | Required tools, agents, env vars, and optional dependencies are known before writing | `scripts/blog_preflight.py --gate 1` |
 | 2. Format Completeness | `.md`, `.html`, `.pdf`, and a real hero image exist | `scripts/blog_render.py`, `scripts/generate_hero.py` |
 | 3. Visual Verification | Screenshots render at 375, 768, and 1280 widths, JSON-LD is valid, dark mode holds, SVGs do not overflow | `patchright` or `playwright` |
-| 4. Content Review | `blog-reviewer` score is 90+ with zero P0 issues | `agents/blog-reviewer.md` |
+| 4. Content Review | `blog-reviewer` and `analyze_blog.py --mode draft` both at 85+ with zero P0 issues | `agents/blog-reviewer.md` |
 | 5. Asset and Link Integrity | Images resolve, `og:image` exists, links return 200, word count matches schema within 5% | `scripts/blog_preflight.py --gate 5` |
 
 Hero image ladder: Banana MCP, direct Gemini API, premium stock APIs, then Openverse. First working source wins. Full spec: [`skills/blog/references/blog-delivery-contract.md`](skills/blog/references/blog-delivery-contract.md).
@@ -218,7 +218,7 @@ Auto-selected by topic and intent: how-to guide, listicle, case study, compariso
 | Technical Elements | 15 | Schema, images, speed, mobile, OG tags |
 | AI Citation Readiness | 15 | Evidence-backed citability, purpose fit, entity clarity |
 
-Scoring bands: Exceptional (90-100), Strong (80-89), Acceptable (70-79), Below Standard (60-69), Rewrite (<60). The delivery contract blocks delivery below 90.
+Scoring bands: Exceptional (90-100), Strong (80-89), Acceptable (70-79), Below Standard (60-69), Rewrite (<60). The delivery contract blocks a draft below 85 on the draft-mode rubric (`--mode draft`, default for `.md`) or with any P0.
 
 ### More Capabilities
 
@@ -368,7 +368,7 @@ claude-blog is a structured pipeline. Direct LLM prompting is a one-shot. Hosted
 | Full article in one command with iteration loop | Yes | One-shot | Yes | No |
 | Sourced statistics with verification | Yes | No | No | Manual |
 | AI citation optimization (GEO / AEO) | Yes | No | No | Partial |
-| Blocking content review with score 90+ | Yes | No | No | No |
+| Blocking content review with draft score 85+ | Yes | No | No | No |
 | Multilingual plus hreflang in one command | Yes | Partial | Partial | No |
 | Topic-cluster planning | Yes | No | Partial | No |
 | Audio narration | Yes | No | No | No |
@@ -382,7 +382,7 @@ claude-blog is not better at everything. Direct prompting is faster for a single
 
 ### What is claude-blog?
 
-claude-blog is a Claude Code skill suite for writing, optimizing, and auditing blog content. It runs 32 skill directories through a 5-gate delivery contract so every article meets a 90/100 quality bar before it reaches you.
+claude-blog is a Claude Code skill suite for writing, optimizing, and auditing blog content. It runs 32 skill directories through a 5-gate delivery contract so every article meets an 85/100 draft-mode quality bar before it reaches you.
 
 ### How is claude-blog different from prompting Claude or ChatGPT directly?
 

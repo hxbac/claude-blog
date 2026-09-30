@@ -68,20 +68,20 @@ def test_contract_declares_iteration_cap() -> None:
 
 
 def test_contract_declares_score_threshold() -> None:
-    """The contract must declare BOTH the numeric 90 threshold and the P0
+    """The contract must declare BOTH the numeric 85 threshold and the P0
     filter in load-bearing context (not just somewhere on the page).
     Tightened in v1.9.0 hostile-review fix D2."""
     text = CONTRACT_PATH.read_text(encoding="utf-8")
-    # Look for either "< 90", "≥ 90", or "90/100" within 60 chars of "P0" or
+    # Look for either "< 85", "≥ 85", or "85/100" within 60 chars of "P0" or
     # "BLOCK", to ensure the threshold is in the right context not in passing.
     threshold_patterns = [
-        re.compile(r"(?:<|≥|>=|score)\s*90\b", re.IGNORECASE),
-        re.compile(r"\b90/100\b"),
-        re.compile(r"\bbelow\s*90\b", re.IGNORECASE),
+        re.compile(r"(?:<|≥|>=|score)\s*85\b", re.IGNORECASE),
+        re.compile(r"\b85/100\b"),
+        re.compile(r"\bbelow\s*85\b", re.IGNORECASE),
     ]
     assert any(p.search(text) for p in threshold_patterns), (
-        "Contract must declare the 90/100 threshold in load-bearing context "
-        "(e.g. '< 90', 'score 90', '90/100', 'below 90')"
+        "Contract must declare the 85/100 threshold in load-bearing context "
+        "(e.g. '< 85', 'score 85', '85/100', 'below 85')"
     )
     assert re.search(r"P0\b.*BLOCK|BLOCK.*P0|zero\s+P0", text, re.IGNORECASE), (
         "Contract must declare the zero-P0 blocking filter"

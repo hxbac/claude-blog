@@ -20,7 +20,7 @@ Every command is invoked through the main orchestrator
 
 | Command | Sub-Skill | Description |
 |---------|-----------|-------------|
-| `write <topic>` | blog-write | Write a new blog post from scratch (v1.9.0: iterates through the 5-gate delivery contract until score 90+ and zero P0, max 3 iterations) |
+| `write <topic>` | blog-write | Write a new blog post from scratch (v1.9.0: iterates through the 5-gate delivery contract until draft score 85+ and zero P0, max 3 iterations) |
 | `rewrite <file>` | blog-rewrite | Optimize an existing blog post (v1.9.0: same delivery contract; rewrites must score at least as high as the original) |
 | `analyze <file-or-url>` | blog-analyze | Audit blog quality with 0-100 score |
 | `brief <topic>` | blog-brief | Generate a detailed content brief |

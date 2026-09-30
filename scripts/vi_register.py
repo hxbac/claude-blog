@@ -1,51 +1,41 @@
 #!/usr/bin/env python3
-"""Vietnamese address-register consistency checker.
+"""Vietnamese address-register (xưng hô) consistency checker.
+
+This is the ONE register implementation in the repository. ``vi_prose.py`` and
+``analyze_blog.py`` import it; nothing else may carry its own marker sets.
 
 Vietnamese has no register-neutral second person pronoun. A writer picks one
-of at least three registers and, in careful prose, holds it for the whole
-piece:
+of three registers and, in careful prose, holds it for the whole piece:
 
-    peer    ban, minh, chung minh, tui, to (see REGISTER_MARKERS for the
-            real Vietnamese spelling with diacritics)
-    polite  anh chi, anh, chi, cac ban
-    formal  quy khach, quy vi, quy cong ty, quy khach hang
+    peer    bạn, các bạn, mình, chúng mình, tui, tớ
+    polite  anh chị, các anh chị (also written anh/chị)
+    formal  quý khách, quý vị, quý công ty, quý khách hàng, quý độc giả ...
 
-Mixing registers inside one post is one of the clearest marks of a
-post assembled from multiple passes (human draft plus AI pass, or two
-different AI passes) rather than written straight through, because a human
-writer holding a register in their head does not drift by accident the way
-a sentence-by-sentence rewrite can.
+Mixing registers inside one post is one of the clearest marks of a post
+assembled from several passes, so it is a P0 defect, but only when the mix is
+real. Review 2026-09-17 (finding A1) showed the previous checker flagging
+ordinary human Vietnamese, so four rules now decide what counts:
 
-This module reports which register is dominant and the line number of every
-sentence that uses a different one. It does not resolve a mixed post
-automatically; a human decides which register the post should keep.
+1. Only reader-facing prose is scanned. Frontmatter (the author "Lan Anh" is
+   not the pronoun "anh"), fenced code, inline code, HTML comments, link
+   targets, blockquotes and quoted spans ("quý khách" in quotation marks is a
+   word being discussed, not an address) are removed first. Line numbers are
+   preserved, so a finding still points at the right line of the file.
+2. Bare ``anh`` and ``chị`` are NOT markers. In third person they are the
+   normal kinship nouns ("anh thợ mộc", "chị khách"). Only the address forms
+   ``anh chị`` and ``các anh chị`` count, and ``anh chị em`` (siblings) does not.
+3. A register is "in use" only by sentences, not tokens. The dominant register
+   is the one with the most marked sentences.
+4. Drift is reported only when a minority register holds at least
+   ``max(15% of marked sentences, 3 sentences)``. Below that it is recorded as
+   ``tolerated`` (a stray quotation or aside) and does not fail the post.
 
-Known ambiguity and how it is handled
---------------------------------------
-Several markers are homographs with an unrelated word once diacritics are
-folded away, which is how the ambiguity is usually described. With correct
-diacritics most of that ambiguity does not exist (the table is "ban" with a
-different tone mark than the pronoun "ban"), but two real collisions remain:
+Homograph guards (kept from Phase G): ``bạn`` inside ``bạn đọc``, ``bạn bè``,
+``bạn hàng``; ``một mình`` / ``tự mình`` / ``chính mình`` (reflexive, not the
+peer pronoun); ``người bạn`` / ``cô bạn`` (a third person friend).
 
-- "ban" is also the ordinary noun for "friend" inside a compound: "ban doc"
-  (reader), "ban be" (friends), "ban hang" (business partner), "ban dien"
-  (co-star), "ban hoc" (classmate), "ban gai" / "ban trai" (girlfriend or
-  boyfriend), "ban than" (close friend), "ban cung" (roommate, classmate).
-  The token immediately after "ban" is checked against this list and the
-  match is dropped when it hits.
-- "anh" is also part of a country or subject name: "tieng Anh" (the English
-  language), "nuoc Anh" / "vuong quoc Anh" (England, the United Kingdom),
-  "Anh van" / "Anh ngu" (English as a school subject), "anh hung" (hero).
-  Both the preceding and the following token are checked.
-
-Known miss, documented rather than fixed: "ban ay" (that friend, third
-person) is still counted as a peer marker, because it still reads as
-peer-register prose even though it is not literally addressing the reader.
-A marker consumed by a longer marker is not counted again ("cac ban"
-consumes both tokens, so it is not also counted as a bare "ban"). Anything
-not in the exclusion lists above is not modeled; a rarer compound will
-still be miscounted, which is why every occurrence is reported with a line
-number for a human to confirm, not silently applied as a score deduction.
+Known miss, documented rather than fixed: ``bạn ấy`` (that friend, third
+person) still counts as peer, because it still reads as peer-register prose.
 
 Stdlib only.
 """
@@ -55,6 +45,7 @@ from __future__ import annotations
 import argparse
 import errno
 import json
+import math
 import os
 import re
 import stat
@@ -68,18 +59,26 @@ import vi_text  # noqa: E402
 
 MAX_INPUT_BYTES = 10 * 1024 * 1024
 
-# Register -> markers, real Vietnamese with diacritics. Order within a
-# register does not matter; cross-register overlap is resolved by scanning
-# longest marker (by token count) first, see _ALL_MARKERS below.
+#: A minority register is drift once it holds this share of marked sentences...
+DRIFT_MIN_RATIO = 0.15
+#: ...or this many sentences, whichever is larger.
+DRIFT_MIN_SENTENCES = 3
+
+# Register -> markers, real Vietnamese with diacritics. Overlap between
+# registers is resolved by scanning the longest marker (by token count) first.
+_FORMAL_HEADS = (
+    'quý khách hàng', 'quý khách', 'quý vị', 'quý công ty', 'quý độc giả',
+    'quý bạn đọc', 'quý phụ huynh', 'quý đối tác', 'quý anh chị',
+)
 REGISTER_MARKERS: dict[str, tuple[str, ...]] = {
-    'peer': ('chúng mình', 'bạn', 'mình', 'tui', 'tớ'),
-    'polite': ('anh chị', 'các bạn', 'anh', 'chị'),
-    'formal': ('quý khách hàng', 'quý khách', 'quý vị', 'quý công ty'),
+    'peer': ('chúng mình', 'các bạn', 'bạn', 'mình', 'tui', 'tớ'),
+    'polite': ('các anh chị', 'anh chị'),
+    'formal': _FORMAL_HEADS,
 }
 
 # Deterministic tie-break when two registers have the same sentence count.
-# Arbitrary but documented: peer wins ties, then polite, then formal.
 _REGISTER_TIEBREAK = {'peer': 0, 'polite': 1, 'formal': 2}
+_REGISTERS = ('peer', 'polite', 'formal')
 
 _ALL_MARKERS: tuple[tuple[str, str], ...] = tuple(
     sorted(
@@ -92,30 +91,117 @@ _ALL_MARKERS: tuple[tuple[str, str], ...] = tuple(
     )
 )
 
-# "ban" followed by one of these forms a compound noun, not the pronoun.
+# "bạn" followed by one of these forms a compound noun, not the pronoun.
 _BAN_NOUN_FOLLOW = frozenset({
     'đọc', 'bè', 'hàng', 'diễn', 'học', 'gái', 'trai', 'thân', 'cùng',
+    'nhậu', 'đời', 'tình', 'nghề',
 })
+# "bạn" preceded by one of these is a third person friend ("người bạn").
+_BAN_NOUN_PRECEDE = frozenset({'người', 'cô', 'cậu', 'ông', 'bà', 'những', 'mấy'})
+# "mình" that is reflexive or a body noun, not the peer pronoun.
+_MINH_NOUN_PRECEDE = frozenset({'một', 'tự', 'chính', 'riêng'})
+_MINH_NOUN_FOLLOW = frozenset({'mẩy'})
+# "anh chị em" is "siblings", a kinship noun.
+_ANH_CHI_NOUN_FOLLOW = frozenset({'em'})
 
-# "anh" inside a country / language / subject name, not an address pronoun.
-_ANH_NOUN_PRECEDE = frozenset({'tiếng', 'nước', 'vương'})
-_ANH_NOUN_FOLLOW = frozenset({'quốc', 'văn', 'ngữ', 'hùng'})
+
+# ---------------------------------------------------------------------------
+# Reader-facing prose extraction
+# ---------------------------------------------------------------------------
+
+
+def _blank_keep_newlines(match: 're.Match[str]') -> str:
+    return re.sub(r'[^\n]', ' ', match.group(0))
+
+
+_QUOTE_SPAN_RES = (
+    re.compile(r'"[^"\n]{1,300}"'),
+    re.compile(r'\u201c[^\u201d\n]{1,300}\u201d'),
+    re.compile(r'\u00ab[^\u00bb\n]{1,300}\u00bb'),
+)
+
+
+def strip_non_prose(text: str) -> str:
+    """Remove everything that is not the author speaking to the reader.
+
+    The result has exactly the same number of lines as the input, so a line
+    number found in the stripped text is the line number in the file.
+    """
+    text = vi_text.normalize(text).replace('\r\n', '\n')
+    # Frontmatter, only when the file opens with it.
+    text = re.sub(r'\A---[ \t]*\n.*?\n---[ \t]*(?:\n|\Z)',
+                  _blank_keep_newlines, text, count=1, flags=re.DOTALL)
+    # Fenced code (``` or ~~~), then HTML comments, both spanning lines.
+    text = re.sub(r'(?ms)^[ \t]*(`{3,}|~{3,}).*?^[ \t]*\1[ \t]*$',
+                  _blank_keep_newlines, text)
+    text = re.sub(r'<!--.*?-->', _blank_keep_newlines, text, flags=re.DOTALL)
+    text = re.sub(r'`[^`\n]*`', lambda m: ' ' * len(m.group(0)), text)
+    text = re.sub(r'!\[[^\]\n]*\]\([^)\n]*\)', ' ', text)
+    text = re.sub(r'\[([^\]\n]+)\]\([^)\n]*\)', r'\1', text)
+    text = re.sub(r'<[^>\n]+>', ' ', text)
+    # Blockquotes are quotations, whole lines of them.
+    text = re.sub(r'(?m)^[ \t]*>.*$', '', text)
+    for pattern in _QUOTE_SPAN_RES:
+        text = pattern.sub(' ', text)
+    return text
 
 
 def _tokenize(sentence: str) -> list[str]:
     return re.findall(r"[^\W\d_]+", sentence, re.UNICODE)
 
 
-def _sentence_spans(line: str) -> list[str]:
-    return [s for s in re.split(r'(?<=[.!?…])\s+', line) if s.strip()]
+def _sentences_with_lines(clean: str) -> list[tuple[int, str]]:
+    """Return (start_line, sentence) pairs. Soft-wrapped lines of one
+    paragraph are joined first, so one sentence is never counted twice."""
+    lines = clean.split('\n')
+    blocks: list[list[tuple[int, str]]] = []
+    current: list[tuple[int, str]] = []
+    for idx, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        starts_new = bool(re.match(r'(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|\|)', stripped))
+        if not stripped:
+            if current:
+                blocks.append(current)
+                current = []
+            continue
+        if starts_new and current:
+            blocks.append(current)
+            current = []
+        current.append((idx, stripped))
+        if starts_new and re.match(r'#{1,6}\s', stripped):
+            blocks.append(current)
+            current = []
+    if current:
+        blocks.append(current)
+
+    out: list[tuple[int, str]] = []
+    for block in blocks:
+        joined = ''
+        offsets: list[tuple[int, int]] = []
+        for line_no, content in block:
+            if joined:
+                joined += ' '
+            offsets.append((len(joined), line_no))
+            joined += content
+        pos = 0
+        for part in re.split(r'(?<=[.!?\u2026])\s+', joined):
+            if not part.strip():
+                continue
+            start = joined.find(part, pos)
+            pos = start + len(part)
+            line_no = block[0][0]
+            for off, ln in offsets:
+                if off <= start:
+                    line_no = ln
+            out.append((line_no, part.strip()))
+    return out
 
 
 def _find_markers(sentence: str) -> list[tuple[str, str]]:
     """Return [(register, marker), ...] for pronoun-reading matches.
 
-    Longer markers are matched first and their token span is marked
-    consumed, so "cac ban" is never also counted as a bare "ban", and
-    "anh chi" is never also counted as bare "anh" plus bare "chi".
+    Longer markers are matched first and their token span is consumed, so
+    "các bạn" is never also counted as a bare "bạn".
     """
     tokens = _tokenize(sentence.lower())
     hits: list[tuple[str, str]] = []
@@ -130,11 +216,15 @@ def _find_markers(sentence: str) -> list[tuple[str, str]]:
                 continue
             prev_tok = tokens[i - 1] if i > 0 else None
             next_tok = tokens[i + n] if i + n < len(tokens) else None
-            if marker == 'bạn' and next_tok in _BAN_NOUN_FOLLOW:
-                continue
-            if marker == 'anh' and (
-                prev_tok in _ANH_NOUN_PRECEDE or next_tok in _ANH_NOUN_FOLLOW
+            if marker == 'bạn' and (
+                next_tok in _BAN_NOUN_FOLLOW or prev_tok in _BAN_NOUN_PRECEDE
             ):
+                continue
+            if marker == 'mình' and (
+                prev_tok in _MINH_NOUN_PRECEDE or next_tok in _MINH_NOUN_FOLLOW
+            ):
+                continue
+            if marker == 'anh chị' and next_tok in _ANH_CHI_NOUN_FOLLOW:
                 continue
             hits.append((register, marker))
             for j in range(i, i + n):
@@ -142,63 +232,77 @@ def _find_markers(sentence: str) -> list[tuple[str, str]]:
     return hits
 
 
+def drift_threshold(marked_sentences: int) -> int:
+    """Sentences a minority register needs before it counts as drift."""
+    return max(DRIFT_MIN_SENTENCES, math.ceil(DRIFT_MIN_RATIO * marked_sentences))
+
+
 def analyze_register(text: str) -> dict[str, Any]:
     """Return dominant register, per-register counts, and off-register lines.
 
-    ``off_register`` lists one entry per (line, register) pair actually
-    found, each with the line number, the register, the markers matched on
-    that line, and a short sentence excerpt. A sentence that wraps across a
-    markdown line break is attributed to the physical line the marker
-    appears on, not necessarily the line the sentence started on; this is a
-    documented simplification, not a crash risk.
+    ``off_register`` lists one row per sentence of every register that reached
+    the drift threshold. ``tolerated`` lists the rows of minority registers
+    that stayed below it (informational, never fails). ``consistent`` is False
+    only when ``off_register`` is non-empty.
     """
-    normalized = vi_text.normalize(text)
-    lines = normalized.splitlines()
+    clean = strip_non_prose(text)
 
     sentence_hits: list[dict[str, Any]] = []
-    marker_counts = {'peer': 0, 'polite': 0, 'formal': 0}
+    marker_counts = {reg: 0 for reg in _REGISTERS}
+    marked_sentences = 0
 
-    for line_no, line in enumerate(lines, start=1):
-        for sentence in _sentence_spans(line):
-            hits = _find_markers(sentence)
-            if not hits:
-                continue
-            by_register: dict[str, list[str]] = {}
-            for register, marker in hits:
-                marker_counts[register] += 1
-                by_register.setdefault(register, []).append(marker)
-            for register, markers in by_register.items():
-                sentence_hits.append({
-                    'line': line_no,
-                    'register': register,
-                    'markers': markers,
-                    'sentence': sentence.strip()[:160],
-                })
+    for line_no, sentence in _sentences_with_lines(clean):
+        hits = _find_markers(sentence)
+        if not hits:
+            continue
+        marked_sentences += 1
+        by_register: dict[str, list[str]] = {}
+        for register, marker in hits:
+            marker_counts[register] += 1
+            by_register.setdefault(register, []).append(marker)
+        for register, markers in by_register.items():
+            sentence_hits.append({
+                'line': line_no,
+                'register': register,
+                'markers': markers,
+                'sentence': sentence[:160],
+            })
 
-    sentence_counts = {'peer': 0, 'polite': 0, 'formal': 0}
+    sentence_counts = {reg: 0 for reg in _REGISTERS}
     for row in sentence_hits:
         sentence_counts[row['register']] += 1
 
-    total = sum(sentence_counts.values())
     dominant = None
-    if total > 0:
+    if any(sentence_counts.values()):
         dominant = max(
             sentence_counts,
             key=lambda k: (sentence_counts[k], -_REGISTER_TIEBREAK[k]),
         )
 
-    off_register = (
-        [row for row in sentence_hits if row['register'] != dominant]
-        if dominant is not None else []
-    )
+    threshold = drift_threshold(marked_sentences)
+    drifting = [
+        reg for reg in _REGISTERS
+        if reg != dominant and sentence_counts[reg] >= threshold
+    ]
+    off_register = [row for row in sentence_hits if row['register'] in drifting]
+    tolerated = [
+        row for row in sentence_hits
+        if dominant is not None
+        and row['register'] != dominant
+        and row['register'] not in drifting
+    ]
 
     return {
         'marker_counts': marker_counts,
         'sentence_counts': sentence_counts,
         'dominant_register': dominant,
-        'total_sentences_with_marker': total,
+        'total_sentences_with_marker': sum(sentence_counts.values()),
+        'marked_sentences': marked_sentences,
+        'drift_threshold': threshold,
+        'drift_registers': drifting,
         'off_register': off_register,
-        'consistent': len(off_register) == 0,
+        'tolerated': tolerated,
+        'consistent': not off_register,
     }
 
 
@@ -247,7 +351,7 @@ def _format_markdown(result: dict[str, Any], filename: str) -> str:
     lines = [f'## Vietnamese Register Check: {filename}', '']
     dominant = result['dominant_register']
     if dominant is None:
-        lines.append('No register markers (ban/minh, anh/chi, quy khach ...) found.')
+        lines.append('No register markers (bạn/mình, anh chị, quý khách ...) found.')
         return '\n'.join(lines)
     lines.append(f"Dominant register: **{dominant}**")
     counts = result['sentence_counts']
@@ -258,6 +362,11 @@ def _format_markdown(result: dict[str, Any], filename: str) -> str:
     lines.append('')
     if result['consistent']:
         lines.append('No register drift detected.')
+        if result.get('tolerated'):
+            lines.append(
+                f"Tolerated (below the drift threshold of {result['drift_threshold']} "
+                f"sentences): {len(result['tolerated'])} off-register sentence(s)."
+            )
     else:
         lines.append('### Off-register sentences')
         for row in result['off_register']:

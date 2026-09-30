@@ -41,7 +41,7 @@ not copied verbatim from either source.
 Usage:
     python3 ai_structure.py <file>                    # text report (default)
     python3 ai_structure.py <file> --format json       # structured JSON
-    python3 ai_structure.py <file> --lang vi           # Vietnamese phrase lists
+    python3 ai_structure.py <file> --lang vi           # force a language (default: frontmatter lang:)
     python3 ai_structure.py -                          # read from stdin
 
 Stdlib only. No network. No score is computed or returned; this is a
@@ -56,6 +56,12 @@ import re
 import sys
 from pathlib import Path
 from typing import Any
+
+try:
+    import vi_profile
+except ImportError:  # imported by path from another directory
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import vi_profile
 
 # ---------------------------------------------------------------------------
 # Shared regex fragments
@@ -103,23 +109,21 @@ _CHATBOT_RESIDUE: dict[str, tuple[str, ...]] = {
         r"\bwant me to\b",
         r"\bshould i continue\b",
     ),
-    "vi": (
-        r"hy\s+vọng\s+bài\s+viết\s+này",
-        r"^\s*dưới\s+đây\s+là\b",
-        r"chắc\s+chắn\s+rồi",
-        r"rất\s+vui\s+được\s+hỗ\s+trợ\s+bạn",
-        r"bạn\s+có\s+muốn\s+(?:tôi|mình)",
-        r"hãy\s+cho\s+tôi\s+biết\s+nếu\s+bạn",
-    ),
+    # Vietnamese residue lives in vi_profile.py, the single list of
+    # Vietnamese lexical tells. "Dưới đây là ..." is residue only as the first
+    # prose line of the file (a chat preamble); mid-post it is ordinary prose.
+    "vi": vi_profile.residue_patterns(preamble=False),
+}
+
+#: Residue that only counts on the first prose line of the document.
+_CHATBOT_PREAMBLE: dict[str, tuple[str, ...]] = {
+    "vi": vi_profile.residue_patterns(preamble=True),
 }
 
 # One-line-closer stock phrases (item 2): direct match in addition to the
-# word-overlap heuristic below. Kept short on purpose; a long list rots the
-# same way the English AI-trigger-word list rotted (see PHASE-G-VIETNAMESE-PARITY.md).
-# Optional intensifier slot: "moi", "chinh", "thuc su", "that su", in any
-# order and any combination, or nothing at all.
-_VI_INTENSIFIER = r"\s+(?:(?:mới|chính|thực\s+sự|thật\s+sự)\s+)*"
-
+# word-overlap heuristic below. The Vietnamese list is read from vi_profile.py
+# (single source); the intensifier slot ("đó mới chính là mấu chốt") is defined
+# there too.
 _CLOSER_PHRASES: dict[str, tuple[str, ...]] = {
     "en": (
         r"that is the real win",
@@ -127,18 +131,7 @@ _CLOSER_PHRASES: dict[str, tuple[str, ...]] = {
         r"let that sink in",
         r"read that again",
     ),
-    # Vietnamese allows an optional intensifier between the demonstrative and
-    # the rest of a stock closer: "do chinh la", "do moi chinh la", "do moi
-    # that su la". Matching the bare form misses the inflated variants, which
-    # are the ones a model reaches for. _VI_INTENSIFIER absorbs them.
-    "vi": (
-        r"hãy\s+đọc\s+lại\s+câu\s+trên",
-        r"đó" + _VI_INTENSIFIER + r"là\s+mấu\s+chốt",
-        r"đó" + _VI_INTENSIFIER + r"là\s+(?:điều|vấn\s+đề)\s+(?:cốt\s+lõi|quan\s+trọng)",
-        r"hãy\s+để\s+điều\s+đó\s+thấm",
-        r"vấn\s+đề\s+(?:chính\s+)?nằm\s+ở\s+đó",
-        r"và\s+đó\s+là\s+lý\s+do",
-    ),
+    "vi": vi_profile.closer_patterns(),
 }
 
 _TRIAD_CONJUNCTION: dict[str, str] = {"en": "and", "vi": "và"}
@@ -561,19 +554,27 @@ def check_heading_echo(sections: list[dict[str, Any]], lang: str) -> list[dict[s
 
 def check_chatbot_residue(masked_lines: list[str], lang: str) -> list[dict[str, Any]]:
     patterns = [re.compile(p, re.IGNORECASE) for p in _CHATBOT_RESIDUE.get(lang, ())]
+    preamble = [re.compile(p, re.IGNORECASE) for p in _CHATBOT_PREAMBLE.get(lang, ())]
     findings: list[dict[str, Any]] = []
+    seen_prose = False
     for line_no, line in enumerate(masked_lines, start=1):
-        for pat in patterns:
-            if pat.search(line):
-                findings.append(
-                    _finding(
-                        "chatbot_residue",
-                        line_no,
-                        "Chatbot-turn leftover phrase found; it was never meant for the reader.",
-                        line,
-                    )
+        stripped = line.strip()
+        is_prose = bool(stripped) and not stripped.startswith("#") and stripped != "---"
+        first_prose = is_prose and not seen_prose
+        if is_prose:
+            seen_prose = True
+        hit = any(pat.search(line) for pat in patterns)
+        if not hit and first_prose:
+            hit = any(pat.search(line) for pat in preamble)
+        if hit:
+            findings.append(
+                _finding(
+                    "chatbot_residue",
+                    line_no,
+                    "Chatbot-turn leftover phrase found; it was never meant for the reader.",
+                    line,
                 )
-                break
+            )
     return findings
 
 
@@ -632,8 +633,32 @@ def check_not_x_but_y(masked_lines: list[str], lang: str) -> list[dict[str, Any]
 # ---------------------------------------------------------------------------
 
 
+_FRONTMATTER_RE = re.compile(r"\A---[ \t]*\n.*?\n---[ \t]*(?:\n|\Z)", re.DOTALL)
+
+
+def blank_frontmatter(text: str) -> str:
+    """Blank a leading YAML frontmatter block, keeping every line number."""
+    return _FRONTMATTER_RE.sub(lambda m: re.sub(r"[^\n]", "", m.group(0)), text, count=1)
+
+
+def detect_lang(text: str) -> str:
+    """Read ``lang:`` from the frontmatter; ``en`` when absent or unsupported.
+
+    A Vietnamese post that forgot ``lang: vi`` is still scored as Vietnamese by
+    analyze_blog.py's own detection; this helper only serves the CLI.
+    """
+    m = _FRONTMATTER_RE.match(text)
+    if m:
+        lm = re.search(r"(?m)^(?:lang|language|inLanguage)\s*:\s*[\"']?([A-Za-z_-]+)", m.group(0))
+        if lm:
+            primary = re.split(r"[-_]", lm.group(1).lower(), maxsplit=1)[0]
+            if primary in _STOPWORDS:
+                return primary
+    return "en"
+
+
 def analyze(text: str, lang: str = "en") -> dict[str, Any]:
-    masked = mask_code(text)
+    masked = mask_code(blank_frontmatter(text))
     masked_lines = masked.split("\n")
     sections = parse_sections(masked_lines)
     line_to_section = _line_to_section_index(sections, len(masked_lines))
@@ -825,7 +850,8 @@ def render_text(report: dict[str, Any]) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("input", help="Path to a markdown/text file, or '-' for stdin")
-    parser.add_argument("--lang", choices=["en", "vi"], default="en", help="Language profile (default en)")
+    parser.add_argument("--lang", choices=["en", "vi"], default=None,
+                        help="Language profile (default: the frontmatter lang:, else en)")
     parser.add_argument("--format", choices=["text", "json"], default="text", help="Output format")
     args = parser.parse_args()
 
@@ -838,7 +864,7 @@ def main() -> int:
             return 2
         text = path.read_text(encoding="utf-8", errors="replace")
 
-    report = analyze(text, args.lang)
+    report = analyze(text, args.lang or detect_lang(text))
 
     if args.format == "json":
         print(json.dumps(report, indent=2, ensure_ascii=False))

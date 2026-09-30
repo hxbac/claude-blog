@@ -11,7 +11,7 @@ This contract is the v1.9.0 answer to a failure pattern from the v1.8.x cycle: s
 | 1. Capability Discovery | Required tools + agents are available before write begins | Block if no valid local hero and no permitted image path; block if reviewer agent missing | `scripts/blog_preflight.py --gate 1` |
 | 2. Format Completeness | `.md` + `.html` + `.pdf` + `hero.(png\|jpg)` all present | Block on any missing artifact | `scripts/blog_render.py` renders `.html` and `.pdf`; `scripts/generate_hero.py` emits `hero.<ext>` |
 | 3. Visual Verification | Rendered HTML has no SVG overflow, no console errors, valid JSON-LD | Block on any defect; preserve screenshots | `scripts/blog_preflight.py --gate 3` via `patchright` |
-| 4. Content Review | `blog-reviewer` scores ≥ 90/100 AND zero P0 issues | Block + iterate | `agents/blog-reviewer.md` (now blocking) |
+| 4. Content Review | Draft-mode score ≥ 85/100 (reviewer and `analyze_blog.py --mode draft`) AND zero P0 issues | Block + iterate | `agents/blog-reviewer.md` (blocking) plus `scripts/blog_preflight.py --gate 4` |
 | 5. Asset + Link Integrity | Every `<img>` resolves, every `<a>` returns 200, schema validates | Block on any 404 or count mismatch | `scripts/blog_preflight.py --gate 5` |
 
 All gates run sequentially. First failure halts the chain and triggers the iteration loop. Successful drafts ship with `preflight-report.json` + `review.md` + `preview/*.png` in the draft folder.
@@ -76,17 +76,42 @@ Strict delivery requires `patchright` or an equivalent renderer. If no renderer 
 
 The existing `blog-reviewer` agent (`agents/blog-reviewer.md`) runs against the rendered `.html` (not the raw `.md`). Reviewer output is now **blocking**, not advisory.
 
+### Draft mode is the bar (Phase J)
+
+The 100-point rubric of `quality-scoring.md` measures a **published page**: internal links, about and contact patterns, JSON-LD, Open Graph, crawler access. A draft in `blog-results/` can never have those, so scoring it that way made real Vietnamese prose and AI slop score alike (finding A3 of the 2026-09-17 review). Gate 4 therefore uses the **draft-mode** rubric (`python3 scripts/analyze_blog.py <slug>.md --mode draft`, the default for `.md`):
+
+| Item | Weight | Notes |
+|---|---:|---|
+| Register consistency | 12 | Vietnamese only; `vi_register.py` |
+| Lexical tell density | 16 | The single list in `vi_profile.py`; per 1,000 syllables |
+| Structural cluster score | 12 | `ai_structure.py`, language read from the frontmatter `lang:` |
+| Sentence-length distribution | 8 | Against the 20-syllable threshold for `vi` |
+| Evidence discipline | 14 | A number needs a source or an illustrative marker |
+| Title convention | 6 | Sentence case for `vi` |
+| Title and meta length | 6 | |
+| Heading structure | 8 | Scaled to post length; not asked of short posts |
+| Reader utility | 8 | Scaled to post length |
+| Frontmatter | 6 | author, date, slug, canonical, `lang` |
+| No trust boilerplate in the body | 4 | About/contact/"biên tập bởi" text belongs in the site footer |
+
+Items that do not apply (register for English, headings for a very short post) leave the denominator instead of counting as losses. Site-level items (internal links, about and contact, schema, Open Graph, crawler access, live canonical, image alt, legal disclosure) are printed as a **pre-publish checklist** and never scored.
+
 ### Blocking decision rules
 
-- Overall score **< 90/100** → BLOCK
-- **Any P0 issue** from `editorial-heuristics.md` → BLOCK (a draft can score 95 and still have one load-bearing fabricated stat; P0 is an absolute filter independent of the numeric score)
+- Draft-mode score **< 85/100** → BLOCK (checked twice: the reviewer's `Overall Score` and the analyzer's own run inside `blog_preflight.py --gate 4`)
+- **Any P0** → BLOCK, regardless of the number:
+  - register drift: a minority register holding at least `max(15% of marked sentences, 3 sentences)` (`vi_register.py`)
+  - chatbot residue left in the text (`ai_structure.py`)
+  - fabricated statistic: a percentage attributed to a study or survey with no link or source, not marked illustrative
+  - missing legal disclosure (Phase K: the hook `draft_rubric.legal_disclosure_p0` exists and is called on every run, but returns nothing until Phase K implements it)
+- Any P0 issue from `editorial-heuristics.md` → BLOCK (a draft can score 95 and still have one load-bearing fabricated stat; P0 is an absolute filter independent of the numeric score)
 - Advisory style diagnostics never block and never infer authorship
 - All clear → proceed to Gate 5
 
 The blocking decision is emitted as the last line of the reviewer scorecard, in the format:
 
 ```
-BLOCKING: true (Overall 87/100 below threshold; P0 on heuristic 5)
+BLOCKING: true (Overall 82/100 below the 85 threshold; P0 on heuristic 5)
 BLOCKING: false (cleared all gates)
 ```
 
@@ -98,11 +123,7 @@ Gate 4 may report sentence-length variation, configured phrase-list matches,
 or vocabulary sampling for editorial review. These diagnostics do not affect
 the numeric score and are never machine-enforced as evidence of AI authorship.
 
-When `lang` resolves to `vi`, Gate 4 additionally runs
-`python3 scripts/vi_prose.py <draft>.md --json`. A `P0` finding (register drift) blocks.
-An AI-tell density above 2.0 per 1000 syllables blocks. Both are reported to
-`blog-writer` with the specific line numbers and suggested fixes, not as a generic
-"improve the writing" instruction.
+When `lang` resolves to `vi`, the draft rubric already includes `vi_prose.py`'s checks through the shared modules (register from `vi_register.py`, lexical tells from `vi_profile.py`), so the Vietnamese P0s above are what block. `python3 scripts/vi_prose.py <draft>.md` remains available for a line-by-line list of tells and off-register lines to hand to `blog-writer`; it now reports register drift only above the ratio rule, so quoting "quý khách" or naming "anh thợ mộc" no longer blocks a post.
 
 ## Gate 5: Asset Existence + Link Integrity
 
@@ -135,7 +156,7 @@ When any gate fails, the orchestrator (`skills/blog/SKILL.md`) drives a retry lo
 2. **Construct iteration prompt** keyed to the failing gate:
    - Gate 2 missing artifact → re-run `scripts/blog_render.py` after fixing the source `.md`
    - Gate 3 visual fail → re-run `scripts/blog_render.py` with adjusted layout (e.g. shrink SVG inner area, wrap long labels)
-   - Gate 4 score < 90 → re-dispatch `blog-writer` agent with the reviewer report as input and an instruction to fix the lowest-scoring category first
+   - Gate 4 score < 85 → re-dispatch `blog-writer` agent with the reviewer report as input and an instruction to fix the lowest-scoring category first
    - Gate 4 P0 issue → re-dispatch with a targeted instruction for that specific P0
    - Gate 5 404 → re-dispatch with instruction to remove or replace the broken URL
 3. **Re-run all five gates** from Gate 1. (Re-running Gate 1 catches the case where an iteration changed capabilities, e.g. installed a missing dep.)

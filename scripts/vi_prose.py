@@ -5,6 +5,12 @@ Deterministic, standard library only. Complements scripts/lint_prose.py, which
 enforces character hygiene across all languages; this module adds the
 Vietnamese-specific checks that a language-agnostic linter cannot express.
 
+It owns no word list and no register rule of its own (Phase J):
+
+* lexical tells come from ``vi_profile.py`` (``scan_tells``), the one list;
+* register drift comes from ``vi_register.py``, the one implementation, with
+  its frontmatter/quote stripping and its 15% / 3-sentence rule.
+
 Usage:
     python3 vi_prose.py <file.md> [--json] [--max-density 2.0]
 
@@ -23,63 +29,31 @@ import sys
 from pathlib import Path
 
 try:
+    import vi_profile
+    import vi_register
     from vi_text import count_syllables, normalize
 except ImportError:                                   # standalone execution
     sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import vi_profile
+    import vi_register
     from vi_text import count_syllables, normalize
 
-__all__ = ["lint_text", "AI_TELLS", "REGISTER_SETS"]
+__all__ = ["lint_text", "AI_TELLS"]
 
-# ---------------------------------------------------------------------------
-# AI-writing tells
-#
-# Formulaic openers and connectives that appear far more often in
-# machine-generated Vietnamese than in prose a person actually wrote.
-# Each entry is (pattern, human-readable label, suggested fix).
-# ---------------------------------------------------------------------------
-AI_TELLS: tuple[tuple[str, str, str], ...] = (
-    (r'trong\s+(?:thế\s+giới|thời\s+đại|bối\s+cảnh)\s+(?:ngày\s+nay|hiện\s+nay|'
-     r'số\s+hoá|công\s+nghệ\s+số|4\.0)',
-     'Mở bài sáo rỗng', 'Vào thẳng vấn đề người đọc đang gặp.'),
-    (r'không\s+thể\s+phủ\s+nhận\s+(?:rằng|là)',
-     'Khẳng định rỗng', 'Bỏ. Nếu đúng thì không cần nói là không thể phủ nhận.'),
-    (r'điều\s+(?:quan\s+trọng|đáng\s+lưu\s+ý)\s+(?:cần\s+)?(?:lưu\s+ý|nhớ|biết)\s+là',
-     'Câu đệm', 'Bỏ cụm này và giữ lại nội dung phía sau.'),
-    (r'hãy\s+cùng\s+(?:đi\s+sâu|tìm\s+hiểu|khám\s+phá|điểm\s+qua)',
-     'Dẫn dắt thừa', 'Bỏ. Người đọc đã bấm vào bài rồi.'),
-    (r'(?:tóm\s+lại|nhìn\s+chung)\s*,?\s*(?:có\s+thể\s+thấy|chúng\s+ta\s+có\s+thể\s+thấy)',
-     'Kết bài sáo rỗng', 'Kết bằng một hành động cụ thể.'),
-    (r'đóng\s+(?:một\s+)?vai\s+trò\s+(?:vô\s+cùng\s+)?quan\s+trọng',
-     'Cụm mòn', 'Nói rõ nó làm gì.'),
-    (r'ngày\s+càng\s+trở\s+nên\s+(?:phổ\s+biến|quan\s+trọng|cần\s+thiết)',
-     'Cụm mòn', 'Đưa số liệu thay vì tính từ.'),
-    (r'là\s+một\s+trong\s+những\s+yếu\s+tố\s+(?:then\s+chốt|quan\s+trọng\s+nhất)',
-     'Cụm mòn', 'Xếp hạng cụ thể hoặc bỏ.'),
-    (r'giúp\s+(?:bạn\s+)?(?:tối\s+ưu\s+hoá|nâng\s+cao|cải\s+thiện)\s+'
-     r'(?:một\s+cách\s+)?(?:hiệu\s+quả|đáng\s+kể|tối\s+đa)',
-     'Hứa hẹn mơ hồ', 'Nêu con số cải thiện thực tế.'),
-    (r'trong\s+bài\s+viết\s+(?:này|dưới\s+đây)\s*,?\s*(?:chúng\s+ta|chúng\s+tôi|tôi)\s+sẽ',
-     'Meta thừa', 'Bỏ. Bắt đầu bằng nội dung.'),
-    (r'hy\s+vọng\s+(?:rằng\s+)?bài\s+viết\s+(?:này\s+)?(?:sẽ\s+)?(?:hữu\s+ích|giúp\s+ích)',
-     'Kết bài sáo rỗng', 'Kết bằng bước tiếp theo cụ thể.'),
-    (r'với\s+sự\s+phát\s+triển\s+(?:không\s+ngừng\s+)?của\s+(?:công\s+nghệ|internet)',
-     'Mở bài sáo rỗng', 'Vào thẳng vấn đề.'),
-)
-
-# ---------------------------------------------------------------------------
-# Register (xưng hô). Vietnamese second-person address encodes social distance.
-# Mixing sets inside one document reads as careless or machine-assembled.
-# ---------------------------------------------------------------------------
-REGISTER_SETS: dict[str, tuple[str, ...]] = {
-    'than_mat':    (r'bạn', r'các\s+bạn', r'mình'),                     # peer, informal
-    'trang_trong': (r'quý\s+khách', r'quý\s+vị', r'quý\s+công\s+ty'),   # formal, commercial
-    'lich_su':     (r'anh\s*/\s*chị', r'anh\s+chị', r'các\s+anh\s+chị'),# polite, sales
-}
+#: (regex, label, fix) rows for formulaic openers and sign-offs, read from the
+#: single list in vi_profile.py. Kept as a name so external callers still work.
+AI_TELLS: tuple[tuple[str, str, str], ...] = vi_profile.FORMULA_TELLS
 
 
 def _strip_markdown(text: str) -> str:
-    """Remove code fences, tables, HTML and link targets before linting prose."""
-    text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
+    """Remove frontmatter, code, tables, HTML and link targets before linting.
+
+    Line count is preserved so a finding's line number is the file's line.
+    """
+    text = normalize(text).replace('\r\n', '\n')
+    text = re.sub(r'\A---[ \t]*\n.*?\n---[ \t]*(?:\n|\Z)',
+                  lambda m: re.sub(r'[^\n]', '', m.group(0)), text, count=1, flags=re.DOTALL)
+    text = re.sub(r'```.*?```', lambda m: re.sub(r'[^\n]', '', m.group(0)), text, flags=re.DOTALL)
     text = re.sub(r'`[^`]*`', '', text)
     text = re.sub(r'^\s*\|.*\|\s*$', '', text, flags=re.MULTILINE)
     text = re.sub(r'<[^>]+>', '', text)
@@ -90,34 +64,31 @@ def _strip_markdown(text: str) -> str:
 
 def lint_text(raw: str) -> dict:
     """Return findings for one document. Pure; no IO."""
-    text = normalize(_strip_markdown(raw))
-    lower = text.lower()
+    text = _strip_markdown(raw)
     total_syllables = max(count_syllables(text), 1)
 
     findings: list[dict] = []
-    for pattern, label, fix in AI_TELLS:
-        for match in re.finditer(pattern, lower, re.IGNORECASE):
-            line = lower.count('\n', 0, match.start()) + 1
-            findings.append({
-                'type': 'ai_tell', 'severity': 'P1', 'label': label,
-                'match': match.group(0), 'line': line, 'fix': fix,
-            })
+    for hit in vi_profile.scan_tells(text):
+        findings.append({
+            'type': 'ai_tell', 'severity': 'P1', 'label': hit['label'],
+            'match': hit['match'], 'line': hit['line'], 'fix': hit['fix'],
+        })
 
-    # Register drift: report only when two or more sets are actually used.
-    register_hits: dict[str, int] = {}
-    for name, patterns in REGISTER_SETS.items():
-        count = sum(len(re.findall(rf'(?<![^\W\d_]){p}(?![^\W\d_])', lower))
-                    for p in patterns)
-        if count:
-            register_hits[name] = count
-    if len(register_hits) >= 2:
-        dominant = max(register_hits, key=register_hits.get)
+    register = vi_register.analyze_register(raw)
+    if not register['consistent']:
+        dominant = register['dominant_register']
+        used = ', '.join(
+            f'{k}={v}' for k, v in sorted(register['sentence_counts'].items()) if v
+        )
+        lines = sorted({row['line'] for row in register['off_register']})
         findings.append({
             'type': 'register_drift', 'severity': 'P0',
             'label': 'Xưng hô không nhất quán',
-            'match': ', '.join(f'{k}={v}' for k, v in sorted(register_hits.items())),
-            'line': 0,
-            'fix': f'Chọn một cách xưng hô cho cả bài. Đang dùng nhiều nhất: {dominant}.',
+            'match': used,
+            'line': lines[0] if lines else 0,
+            'lines': lines,
+            'fix': (f'Chọn một cách xưng hô cho cả bài. Đang dùng nhiều nhất: {dominant}. '
+                    f'Sửa các dòng: {", ".join(str(n) for n in lines[:10])}.'),
         })
 
     tells = sum(1 for f in findings if f['type'] == 'ai_tell')
@@ -125,7 +96,13 @@ def lint_text(raw: str) -> dict:
         'syllables': total_syllables,
         'ai_tell_count': tells,
         'ai_tell_density_per_1000': round(tells / total_syllables * 1000, 2),
-        'register_sets_used': register_hits,
+        'register_sets_used': {k: v for k, v in register['sentence_counts'].items() if v},
+        'register': {
+            'dominant': register['dominant_register'],
+            'drift_threshold': register['drift_threshold'],
+            'tolerated': len(register['tolerated']),
+            'consistent': register['consistent'],
+        },
         'findings': findings,
     }
 

@@ -165,7 +165,7 @@ After major deliverables only, append the standard AI Marketing Hub footer as th
 
 ## Scoring Methodology
 
-Score with `skills/blog/references/quality-scoring.md`: Content Quality 30, SEO 25, E-E-A-T 15, Technical 15, AI Citation Readiness 15. Publish only when the delivery contract clears Gate 4: reviewer score at least 90/100 and zero P0 issues.
+Score with `skills/blog/references/quality-scoring.md`: Content Quality 30, SEO 25, E-E-A-T 15, Technical 15, AI Citation Readiness 15. The 100-point rubric above scores a published page. A draft in `blog-results/` is scored with `python3 scripts/analyze_blog.py <file>.md --mode draft` (the default for `.md`): prose, register, structure, evidence, title and meta, with site-level items moved to a pre-publish checklist. Publish only when the delivery contract clears Gate 4: draft score at least 85/100 and zero P0 issues.
 
 ## Reference Files
 

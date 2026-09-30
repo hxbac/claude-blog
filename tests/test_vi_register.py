@@ -22,8 +22,13 @@ import vi_register
 MIXED_POST = """Quý khách hàng nên tham khảo kỹ thông số kỹ thuật trước khi mua.
 Quý vị có thể liên hệ bộ phận chăm sóc khách hàng để được tư vấn thêm.
 Quý công ty cam kết hỗ trợ quý khách trong suốt quá trình sử dụng.
-Nhiều anh chị đã mua sản phẩm đều hài lòng với chất lượng.
-Chúc bạn thành công trong việc lựa chọn sản phẩm phù hợp cho gia đình mình.
+Quý khách sẽ nhận được hóa đơn điện tử ngay sau khi thanh toán.
+Anh chị nào đã mua sản phẩm đều hài lòng với chất lượng.
+Anh chị có thể đổi trả trong vòng bảy ngày.
+Anh chị cứ hỏi thêm nếu còn băn khoăn điều gì.
+Bạn nên chọn màu sắc hợp với gian bếp nhà mình.
+Bạn có thể xem thêm đánh giá của người mua trước đó.
+Chúc bạn thành công trong việc lựa chọn sản phẩm phù hợp.
 """
 
 CONSISTENT_POST = """Quý khách hàng nên tham khảo kỹ thông số kỹ thuật trước khi mua.
@@ -38,7 +43,7 @@ class TestDominantAndOffRegister:
         assert result['dominant_register'] == 'formal'
         assert result['consistent'] is False
         off_lines = {row['line'] for row in result['off_register']}
-        assert off_lines == {4, 5}
+        assert off_lines == {5, 6, 7, 8, 9, 10}
         registers_seen = {row['register'] for row in result['off_register']}
         assert registers_seen == {'polite', 'peer'}
 
@@ -81,17 +86,17 @@ class TestHomographFalsePositiveGuards:
     def test_genuine_peer_and_polite_pronouns_still_fire(self):
         # Regression guard: the exclusion lists must not overreach and
         # silence real pronoun usage.
-        text = "Bạn nên thử sản phẩm này. Anh có thể mua ở đâu cũng được."
+        text = "Bạn nên thử sản phẩm này. Anh chị có thể mua ở đâu cũng được."
         result = vi_register.analyze_register(text)
         assert result['marker_counts']['peer'] >= 1
         assert result['marker_counts']['polite'] >= 1
 
     def test_longer_marker_consumes_shorter_overlapping_marker(self):
-        # "cac ban" (polite) must not also be counted as a bare "ban" (peer).
+        # "các bạn" (peer, plural of bạn) must not also be counted as a bare "bạn".
         text = "Các bạn hãy để lại bình luận bên dưới nhé."
         result = vi_register.analyze_register(text)
-        assert result['marker_counts']['polite'] == 1
-        assert result['marker_counts']['peer'] == 0
+        assert result['marker_counts']['peer'] == 1
+        assert result['marker_counts']['polite'] == 0
 
 
 class TestWiredIntoAnalyzeBlog:

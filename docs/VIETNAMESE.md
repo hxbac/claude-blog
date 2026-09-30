@@ -17,7 +17,11 @@ unrecognized, so an undeclared Vietnamese post still scores correctly.
 | Quality profile | Vietnamese-specific summary labels, about/contact patterns, first-person and methodology detection, entity-definition and editorial patterns | `scripts/vi_profile.py` (`VI_PROFILE`), registered as `LANGUAGE_PROFILES['vi']` in `scripts/analyze_blog.py` |
 | Slug generation | Transliterates diacritics (`đ` -> `d`, tone marks stripped) to an ASCII, hyphenated slug | `vi_text.slugify()` in `scripts/vi_text.py`, wired into `scripts/blog_render.py` and `scripts/blog_hygiene.py` |
 | Readability model | `vi_syllable`: a syllable-count heuristic (Vietnamese is monosyllabic per whitespace token), not Flesch | `analyze_readability()` in `scripts/analyze_blog.py`, syllable counting in `vi_text.count_syllables()` |
-| Prose linter | Detects formulaic AI-writing openers/connectives and inconsistent second-person register (`bạn` vs. `quý khách` vs. `anh/chị` mixed in one document) | `scripts/vi_prose.py` |
+| Prose linter | Detects formulaic AI-writing openers/connectives and register drift. Owns no list of its own: tells come from `vi_profile.py`, register from `vi_register.py` | `scripts/vi_prose.py` |
+| Register (xưng hô) | The one register checker. Ignores frontmatter, code, quotes and bare `anh`/`chị`; drift only when a minority register holds at least `max(15% of marked sentences, 3 sentences)` | `scripts/vi_register.py` |
+| Lexical tells | One list (`VI_TELLS`) read by `vi_prose.py`, `analyze_blog.py`, `ai_structure.py`; claude-seo's `content_humanize.py --lang vi` uses a generated copy (`python3 scripts/sync_vi_tells.py --write`, verified by a test in both repositories) | `scripts/vi_profile.py`, `scripts/sync_vi_tells.py` |
+| Structural tells | `ai_structure.py` runs inside `analyze_blog.py` (key `ai_structure`), language read from the frontmatter | `scripts/ai_structure.py` |
+| Draft-mode score | `analyze_blog.py --mode draft` (default for `.md`): prose rubric out of 100, site-level items in a pre-publish checklist and outside the denominator. Gate 4 = draft score at least 85 and zero P0 | `scripts/draft_rubric.py` |
 
 ## 2. Quick start
 
@@ -27,7 +31,8 @@ Write, score, and lint a Vietnamese post in three commands:
 # 1. Write the post. During Phase 5a frontmatter, set lang: "vi".
 /blog write "cách tiết kiệm điện mùa hè cho gia đình"
 
-# 2. Score it. The vi profile is auto-selected from frontmatter lang: vi.
+# 2. Score it. The vi profile is auto-selected from frontmatter lang: vi, and a
+#    .md file is scored with the draft rubric (--mode draft is the default).
 python3 scripts/analyze_blog.py bai-viet.md
 
 # 3. Check prose hygiene: AI-writing tells and register drift.
@@ -50,8 +55,9 @@ sets, not a CLI argument. See `skills/blog-write/SKILL.md` Phase 5a.
 - **Register consistency is enforced.** Vietnamese second-person address
   encodes social distance (`bạn`/`mình` peer-informal vs. `quý khách`/`quý
   vị` formal-commercial vs. `anh/chị` polite-sales). Mixing sets in one
-  document reads as careless or machine-assembled; `scripts/vi_prose.py`
-  flags it. See `REGISTER_SETS` in that file.
+  document reads as careless or machine-assembled; `scripts/vi_register.py`
+  flags it, `scripts/vi_prose.py` reuses it, and drift above the ratio rule is
+  a P0 at Gate 4.
 - **Labs data is country-level only.** DataForSEO Labs covers Vietnam at the
   country level (`location_code=2704`); province/city-level data (Hanoi,
   Ho Chi Minh City, Da Nang) requires the SERP API instead. See the "Default
@@ -82,14 +88,15 @@ sets, not a CLI argument. See `skills/blog-write/SKILL.md` Phase 5a.
   Minh City `1028581`, Da Nang `1028809`. Full context in this repository's
   `CLAUDE.md`, "Default market" section.
 - **Register sets** (second-person address, do not mix within one document):
-  `than_mat` (peer/informal: `bạn`, `các bạn`, `mình`), `trang_trong`
-  (formal/commercial: `quý khách`, `quý vị`, `quý công ty`), `lich_su`
-  (polite/sales: `anh/chị`, `anh chị`, `các anh chị`). Full pattern list in
-  `REGISTER_SETS`, `scripts/vi_prose.py`.
+  peer (`bạn`, `các bạn`, `mình`, `chúng mình`), polite (`anh chị`, `các anh
+  chị`), formal (`quý khách`, `quý vị`, `quý công ty`, `quý khách hàng`).
+  Bare `anh` and `chị` are kinship nouns, not markers. Full list in
+  `REGISTER_MARKERS`, `scripts/vi_register.py`.
 - **AI-tell list**: formulaic openers and connectives Vietnamese AI-generated
   prose overuses (hollow scene-setting like "trong thời đại số," empty
-  transitions, stock closings). Full pattern list with suggested fixes in
-  `AI_TELLS`, `scripts/vi_prose.py`.
+  transitions, stock closings), scored phrases and triggers, advisory
+  phrases, chatbot residue, and the humanizer rewrites. One list:
+  `VI_TELLS` in `scripts/vi_profile.py`.
 - **Vietnamese discourse platforms**: `skills/blog-discourse/SKILL.md`,
   operator table.
 - **Vietnamese-market E-E-A-T trust signals** (MST, Bộ Công Thương, Nghị

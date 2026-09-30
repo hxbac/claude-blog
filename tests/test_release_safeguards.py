@@ -305,11 +305,11 @@ def test_brain_delivery_gate_matches_v21_editorial_thresholds() -> None:
         encoding="utf-8"
     )
 
-    assert "below 90" in gate
+    assert "below 85" in gate
     assert "descriptive and non-blocking" in gate
     assert "word-count mismatch beyond the allowed tolerance" not in gate
     assert "pre-commit `quality_gate.py` threshold is 70" in rubric
-    assert "90 to 100 are delivery" in rubric
+    assert "85 to 100 are delivery" in rubric
     assert "DEFAULT_THRESHOLD = 70" in quality_gate
     assert "internal AI citation readiness heuristic" in readiness
     assert "not a calibrated probability" in readiness
