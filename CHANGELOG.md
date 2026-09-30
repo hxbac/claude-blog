@@ -32,6 +32,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   box ("Bài viết được tham vấn bởi ...") in `blog_render.py`. Reference:
   `skills/blog/references/vi-compliance.md`.
 - Vietnamese sections in `agents/blog-reviewer.md` and `agents/blog-writer.md`.
+- Phase N, `blog-publish` skill and `scripts/publish_cms.py`: sends a finished
+  post to WordPress REST (Application Password) as a draft; `--publish` is the
+  only path to a live post. Uploads the hero as featured media and body images,
+  maps title, slug, excerpt, categories and tags, converts the body with
+  `blog_render`, runs Gate 5 (or the source-side checks plus the Phase K
+  compliance rules when the rendered set is absent) before any request, refuses
+  redirects and plain `http://` to a real host, never prints or writes a
+  credential, and calls the claude-seo IndexNow submitter after a real
+  publish. Haravan Omni and Blogger clients sit behind the same interface.
+  Tested only against a local mock HTTP server; no live WordPress, Haravan or
+  Blogger account has been used. New variables `WORDPRESS_*`, `HARAVAN_*`,
+  `BLOGGER_*` (see `docs/CREDENTIALS.md` at the hub root).
+- Phase N, Vietnamese repurpose formats: `scripts/repurpose_vi.py` scaffolds for
+  Zalo OA, Facebook and TikTok in one fixed register (peer, polite or formal),
+  a `check` command using `vi_prose`, and `skills/blog-repurpose/references/vi-channels.md`.
+  Tests assert every scaffold keeps a single register under `vi_register.py`.
 
 ### Changed
 

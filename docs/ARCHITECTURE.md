@@ -30,8 +30,8 @@ The Claude Blog Brain is vendored at `./brain` as a self-contained, evidence-gat
               |                                            |
               v                                            v
 +----------------------------+            +---------------------------+
-|   32 Skill Directories     |            |    On-Demand References   |
-|  1 orchestrator + 31       |            |  skills/blog/references/*.md     |
+|   33 Skill Directories     |            |    On-Demand References   |
+|  1 orchestrator + 32       |            |  skills/blog/references/*.md     |
 |  sub-skills                |            |  skills/blog/templates/*.md      |
 |  write    rewrite          |            |                           |
 |  analyze  brief            |            |  25 references loaded     |
@@ -93,7 +93,7 @@ The entry point for all `/blog` commands. Responsibilities:
 The orchestrator is a Claude Code skill with YAML frontmatter defining its
 name, description, trigger phrases, and allowed tools.
 
-### 2. Skill Directories (32 total: 1 orchestrator + 31 sub-skills; 30 user-facing commands)
+### 2. Skill Directories (33 total: 1 orchestrator + 32 sub-skills; 30 user-facing commands)
 
 **Location**: `skills/blog-*/SKILL.md` (and `skills/blog/SKILL.md` for the orchestrator)
 
@@ -124,6 +124,7 @@ Each sub-skill is a standalone Claude Code skill with its own:
 | blog-factcheck | Statistics verification against cited sources | v1.4.x |
 | blog-persona | Writing persona / voice profile management | v1.4.x |
 | blog-taxonomy | CMS tag / category management (WordPress, Shopify, Ghost, Strapi, Sanity) | v1.4.x |
+| blog-publish | Send a finished post to WordPress, Haravan or Blogger as a draft; IndexNow after a real publish | v2.2.0 |
 | blog-notebooklm | Source-grounded research via NotebookLM | v1.5.0 |
 | blog-audio | Audio narration via Gemini TTS (30 voices, 80+ languages) | v1.6.0 |
 | blog-google | Google API integration (PSI, CrUX, GSC, GA4, NLP, YouTube, Ads) | v1.6.5 |
@@ -505,7 +506,7 @@ After installation, `claude-blog` occupies this structure inside `~/.claude/`:
     └── blog-translator.md              # v1.7.0
 ```
 
-**Component counts (v2.2.0)**: 32 skill directories (1 orchestrator + 31
+**Component counts (v2.2.0)**: 33 skill directories (1 orchestrator + 32
 sub-skills); 30 user-facing commands, 5 agents (blog-researcher, blog-writer, blog-seo, blog-reviewer,
 blog-translator), 25 references in `skills/blog/references/` (plus per-sub-skill
 references and 30 synced FLOW prompts under `skills/blog-flow/references/`),

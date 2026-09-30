@@ -263,7 +263,7 @@ After installation, verify everything is in place:
 # Main skill
 ls ~/.claude/skills/blog/SKILL.md
 
-# Blog-* directories should list 31; total is 32 skill directories (1 orchestrator + 31 sub-skills); 30 user-facing commands
+# Blog-* directories should list 32; total is 33 skill directories (1 orchestrator + 32 sub-skills); 30 user-facing commands
 ls ~/.claude/skills/blog-*/SKILL.md | wc -l
 
 # Agents (should list 5: blog-researcher, blog-writer, blog-seo, blog-reviewer, blog-translator)
@@ -347,7 +347,7 @@ chmod +x uninstall.sh
 
 This removes:
 
-- `~/.claude/skills/blog/` and `~/.claude/skills/blog-*/` (32 skill directories: 1 orchestrator + 31 sub-skills; 30 user-facing commands; `blog-chart` is internal-only)
+- `~/.claude/skills/blog/` and `~/.claude/skills/blog-*/` (33 skill directories: 1 orchestrator + 32 sub-skills; 30 user-facing commands; `blog-chart` is internal-only)
 - `~/.claude/scripts/` (17 root-level scripts: ai_citation_score, analyze_blog, blog_hygiene, blog_preflight, blog_render, cognitive_load, consistency_check, content_decay, dependency_smoke, discourse_research, generate_hero, lint_prose, load_untrusted_root, quality_gate, style_learn, sync_flow, validate_public_release)
 - `~/.claude/agents/blog-*.md` (all 5 agents: blog-researcher, blog-writer, blog-seo, blog-reviewer, blog-translator)
 

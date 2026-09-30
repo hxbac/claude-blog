@@ -2,7 +2,7 @@
 
 This is a practical checklist for a content team, not legal advice. It was
 assembled from secondary sources listed in the survey
-(`docs/review/04-ecosystem-survey.md`, section 3) and it has not been checked
+(the hub ecosystem survey (04-ecosystem-survey.md), section 3) and it has not been checked
 against the primary legal texts. Wording marked **UNVERIFIED** could not be
 sourced from the survey. For a sponsored campaign, a supplement or a property
 listing, have the brand's legal or regulatory contact confirm the final text.

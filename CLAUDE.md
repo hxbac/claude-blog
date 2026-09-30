@@ -4,8 +4,8 @@
 
 This repository contains **Claude Blog**, a Tier 4 Claude Code skill for blog content
 creation, optimization, and management. It follows the Agent Skills open standard and the
-3-layer architecture (directive, orchestration, execution). 32 skill directories
-(1 orchestrator + 31 sub-skills), 30 user-facing `/blog` commands, 5 specialized
+3-layer architecture (directive, orchestration, execution). 33 skill directories
+(1 orchestrator + 32 sub-skills), 30 user-facing `/blog` commands, 5 specialized
 subagents, 12 content templates, and 25 reference docs are dual-optimized for Google rankings
 (2026 core and spam update timeline, E-E-A-T) and AI citations (GEO/AEO). Includes FLOW framework
 integration, semantic topic-cluster planning + execution, multilingual publishing (Pro Hub
@@ -44,7 +44,9 @@ claude-blog/
   scripts/consistency_check.py       # Local reference + FLOW lock validation
   scripts/dependency_smoke.py        # Offline optional-runtime initialization checks
   scripts/validate_public_release.py # Read-only public worktree validation
-  skills/                            # 32 skill directories (1 orchestrator + 31 sub-skills)
+  scripts/publish_cms.py             # CMS publisher, draft by default (Phase N)
+  scripts/repurpose_vi.py            # Zalo OA / Facebook / TikTok scaffolds, one register (Phase N)
+  skills/                            # 33 skill directories (1 orchestrator + 32 sub-skills)
     blog/SKILL.md                   # Main orchestrator, routing, scoring
       references/                   # 22 on-demand knowledge files (5 in v1.8.0, 1 in v1.9.0)
       templates/                    # 12 content templates
@@ -70,6 +72,7 @@ claude-blog/
     blog-factcheck/SKILL.md       # Statistics verification
     blog-persona/SKILL.md         # Writing persona management
     blog-taxonomy/SKILL.md        # CMS taxonomy management
+    blog-publish/SKILL.md         # Send a finished post to WordPress/Haravan/Blogger as a draft
     blog-notebooklm/               # NotebookLM source-grounded research
       SKILL.md                    # NotebookLM query sub-skill
       references/                 # 2 reference docs (commands, troubleshooting)

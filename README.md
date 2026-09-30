@@ -12,7 +12,7 @@
   <a href="https://github.com/AgriciDaniel/claude-blog/discussions"><img src="https://img.shields.io/badge/Community-GitHub%20Discussions-blue" alt="GitHub Discussions"></a>
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License: MIT">
   <img src="https://img.shields.io/badge/Python-3.11%2B-blue" alt="Python 3.11+">
-  <img src="https://img.shields.io/badge/Skill%20Dirs-32-orange" alt="Skill directories: 32">
+  <img src="https://img.shields.io/badge/Skill%20Dirs-33-orange" alt="Skill directories: 33">
   <img src="https://img.shields.io/badge/Sub--Skills-31-orange" alt="Sub-skills: 31">
   <img src="https://img.shields.io/badge/Commands-30-blueviolet" alt="User-facing commands: 30">
   <img src="https://img.shields.io/badge/Tests-250%2B%20passing-brightgreen" alt="Tests: more than 250 passing">
@@ -49,7 +49,7 @@ The publishing workflow is documented in
 
 claude-blog is a full-lifecycle blog engine for strategy, briefs, outlines, writing, rewriting, analysis, schema, AI citation readiness, site audits, topic clusters, multilingual publishing, audio narration, and content decay detection.
 
-Current v2.2.0 shape: **32 skill directories = 1 orchestrator + 31 sub-skills; 30 user-facing /blog commands (`blog-chart` is internal, not a command).** It also includes 5 specialized agents, repository consistency and public-release validators, 22 core references, 12 templates, a 250+ test suite, and the bundled Claude Blog Brain at `./brain`.
+Current v2.2.0 shape: **33 skill directories = 1 orchestrator + 32 sub-skills; 30 user-facing /blog commands (`blog-chart` is internal, not a command).** It also includes 5 specialized agents, repository consistency and public-release validators, 22 core references, 12 templates, a 250+ test suite, and the bundled Claude Blog Brain at `./brain`.
 
 Every draft ships as an artifact folder with the markdown source, rendered HTML, PDF, real `hero.<ext>`, 3 viewport screenshots, `review.md`, and `preflight-report.json`. The renderer uses XSS-safe JSON-LD handling, dark-mode-aware CSS, and the same source for every output format.
 
@@ -102,7 +102,7 @@ The orchestrator in `skills/blog/SKILL.md` parses `/blog` input, detects the tar
 
 | Layer | Count | Where |
 |---|---:|---|
-| Skill directories | 32 | `skills/blog` plus `skills/blog-*` |
+| Skill directories | 33 | `skills/blog` plus `skills/blog-*` |
 | Orchestrator | 1 | `skills/blog/SKILL.md` |
 | Sub-skills | 31 | `skills/blog-*/SKILL.md` |
 | User-facing `/blog` commands | 30 | `skills/blog/SKILL.md` routing table |
@@ -382,7 +382,7 @@ claude-blog is not better at everything. Direct prompting is faster for a single
 
 ### What is claude-blog?
 
-claude-blog is a Claude Code skill suite for writing, optimizing, and auditing blog content. It runs 32 skill directories through a 5-gate delivery contract so every article meets an 85/100 draft-mode quality bar before it reaches you.
+claude-blog is a Claude Code skill suite for writing, optimizing, and auditing blog content. It runs 33 skill directories through a 5-gate delivery contract so every article meets an 85/100 draft-mode quality bar before it reaches you.
 
 ### How is claude-blog different from prompting Claude or ChatGPT directly?
 

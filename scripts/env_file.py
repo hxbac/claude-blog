@@ -70,6 +70,17 @@ KNOWN_VARS = (
     "GOOGLE_APPLICATION_CREDENTIALS",
     "GA4_PROPERTY_ID",
     "GSC_PROPERTY",
+    "WORDPRESS_URL",
+    "WORDPRESS_USER",
+    "WORDPRESS_APP_PASSWORD",
+    "HARAVAN_SHOP",
+    "HARAVAN_ACCESS_TOKEN",
+    "HARAVAN_BLOG_ID",
+    "BLOGGER_BLOG_ID",
+    "BLOGGER_CLIENT_ID",
+    "BLOGGER_CLIENT_SECRET",
+    "BLOGGER_REFRESH_TOKEN",
+    "BLOGGER_ACCESS_TOKEN",
 )
 
 #: Variables whose value must never be echoed, even partially, by --check.

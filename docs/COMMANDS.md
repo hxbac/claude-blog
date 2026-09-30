@@ -1,6 +1,6 @@
 # Command Reference
 
-Complete reference for 32 skill directories (1 orchestrator + 31 sub-skills);
+Complete reference for 33 skill directories (1 orchestrator + 32 sub-skills);
 30 user-facing commands. `blog-chart` is internal-only, invoked from
 blog-write/blog-rewrite.
 Every command is invoked through the main orchestrator

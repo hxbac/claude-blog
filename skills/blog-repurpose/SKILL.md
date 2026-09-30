@@ -4,11 +4,11 @@ description: >
   Repurpose blog posts for social media, email, video, podcast, and community
   channels. Generates Twitter/X threads, LinkedIn posts and articles, Threads,
   Bluesky, TikTok, Instagram, YouTube Shorts and long-form scripts, Reddit,
-  newsletter, podcast, Discord, and Slack variants. Adapts tone for each
-  platform.
+  newsletter, podcast, Discord, and Slack variants, plus Vietnamese Zalo OA,
+  Facebook, and TikTok script formats. Adapts tone for each platform.
   Use when user says "repurpose", "blog repurpose", "share blog", "social media",
   "twitter thread", "linkedin post", "youtube script", "reddit post".
-  Also use when the request is written in Vietnamese, for example "đăng lại lên Facebook", "cắt thành post ngắn", "chuyển thành bài social", "làm caption".
+  Also use when the request is written in Vietnamese, for example "đăng lại lên Facebook", "cắt thành post ngắn", "chuyển thành bài social", "làm caption", "bài Zalo OA", "viết bài Facebook", "kịch bản TikTok".
 user-invokable: true
 argument-hint: "<file-path>"
 license: MIT
@@ -50,7 +50,8 @@ Prompt the user to select which platforms to generate content for:
 6. Reddit, Mastodon, Discord, Slack, or community variant
 7. Email newsletter excerpt
 8. Podcast or interview script
-9. All of the above
+9. Vietnamese channels: Zalo OA, Facebook, TikTok (Step 4.7)
+10. All of the above
 
 If the user specifies a platform directly (e.g., "repurpose for Twitter"),
 skip this step and generate for that platform only.
@@ -135,6 +136,27 @@ Instagram, TikTok, X, and YouTube are rolling out gradually. Eligible creators
 can inspect Search and Discover clicks, impressions, posts, and queries in the
 Search Console UI. Do not promise access through `/blog google gsc` or the
 Search Console API until Google documents that support.
+
+### Step 4.7: Vietnamese Channels (Zalo OA, Facebook, TikTok)
+
+Use when the post is `lang: vi` or the user names Zalo, Facebook or TikTok.
+Read `skills/blog-repurpose/references/vi-channels.md` first, then build each
+piece from the scaffold so the register (xưng hô) is fixed before any copy is
+written:
+
+```bash
+python3 scripts/repurpose_vi.py render --channel zalo_oa|facebook|tiktok --register peer|polite|formal ...
+python3 scripts/repurpose_vi.py check repurposed/{slug}-facebook.md
+```
+
+- Take the register from the source post (`scripts/vi_register.py`); do not
+  mix `bạn`, `anh chị` and `quý khách` inside one piece.
+- Facebook: hook inside the first 125 characters, at most two emoji.
+- Zalo OA: greeting line, short paragraphs, link to the full post.
+- TikTok: outline with a 0 to 3 second hook, one beat per point, captions on.
+- Run `check` before saving. A `register_drift` finding or an AI-writing tell
+  is fixed, not reported.
+- Same hard stat rule as every other platform: only verified statistics.
 
 ### Step 5: YouTube Script
 
@@ -261,6 +283,9 @@ repurposed/
   {slug}-reddit-post.md
   {slug}-email-newsletter.md
   {slug}-podcast-script.md
+  {slug}-zalo-oa.md
+  {slug}-facebook-vi.md
+  {slug}-tiktok-vi.md
 ```
 
 Derive `{slug}` from the source title or filename using only `[a-z0-9-]`.
