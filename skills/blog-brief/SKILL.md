@@ -57,6 +57,24 @@ Using WebSearch:
 5. Check AI Overviews, AI Mode where available, visible citation/source surfaces, featured snippets, and People Also Ask. Record cited publishers and answer formats when visible; mark surfaces as unavailable when not directly checked.
 6. Note the **search intent**: what do searchers actually want?
 
+#### Vietnamese keyword research (`lang: vi`)
+
+For a Vietnamese post, run the variant and volume script before choosing the
+primary keyword. Do not ask the user to run it:
+
+```bash
+python3 scripts/vi_keywords.py "<từ khoá gốc>" --format markdown
+```
+
+It returns the diacritic and non-diacritic forms, Bắc/Nam synonyms (heo/lợn,
+ly/cốc, thìa/muỗng ...), intent variants (là gì, giá, review, có tốt không,
+nên mua, top 10, so sánh, ở đâu) and Vietnam monthly volumes (location 2704).
+Pick the primary keyword from the highest-volume form, list the strongest
+regional synonym as a secondary keyword, and note in the brief which forms
+readers actually type. If the output says no DataForSEO key is set, pass that
+one line on to the user in Vietnamese and continue with volumes marked n/a;
+never invent volumes. Cost is one small request (`--limit`, default 40).
+
 ### Step 2.5: Template Recommendation
 
 Analyze the topic, search intent, and competitive landscape to recommend one
@@ -220,7 +238,7 @@ statistic for every section.
 
 | Option | Details |
 |--------|---------|
-| Photo cover | [Pixabay/Unsplash/Pexels search terms for wide hero image] |
+| Photo cover | [Pixabay/Unsplash/Pexels search terms for wide hero image; write them in short English, stock libraries index English] |
 | Generated SVG | [Text-on-gradient concept with key stat, if data-heavy topic; sanitize to remove scripts and event attributes, or rasterize to PNG before publishing] |
 | Dimensions | 1200x630 (OG-compatible) |
 

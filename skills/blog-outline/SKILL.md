@@ -39,6 +39,13 @@ Gather from the user:
 
 If only a topic is given, infer the keyword and intent from context.
 
+For `lang: vi`, before the SERP analysis run
+`python3 scripts/vi_keywords.py "<từ khoá>" --format markdown` (no need to ask
+the user). Use the highest-volume Vietnamese form as the target keyword, work
+the Bắc/Nam synonyms and the intent variants (là gì, giá, review, có tốt không,
+so sánh, ở đâu) into H2/H3 headings and the FAQ, and say in one Vietnamese
+line if volumes are n/a because no DataForSEO key is set.
+
 ### Step 2: SERP Analysis
 
 Use WebSearch to analyze the full visible search surface for the target keyword, not just classic blue links:

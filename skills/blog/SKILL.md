@@ -169,7 +169,7 @@ Score with `skills/blog/references/quality-scoring.md`: Content Quality 30, SEO 
 
 ## Reference Files
 
-Load on-demand as needed (24 references, load only what the task needs):
+Load on-demand as needed (25 references, load only what the task needs):
 
 - `skills/blog/references/google-landscape-2026.md`: source-governed 2026 Search
   updates, reporting anomalies, structured data, and API currentness
@@ -198,6 +198,7 @@ Load on-demand as needed (24 references, load only what the task needs):
 - `skills/blog/references/orchestration-details.md`: agent roles, execution flow, internal workflows, and project-root context loading
 - `skills/blog/references/ai-writing-tells-vi.md`: structural AI-writing patterns with Vietnamese before/after examples, for the writing agent to load before drafting Vietnamese (Phase G)
 - `skills/blog/references/vi-word-list-tiering.md`: the tiering bar for the Vietnamese AI-tell word lists in `scripts/vi_profile.py`, scored versus advisory (Phase G)
+- `skills/blog/references/vi-compliance.md`: Vietnamese advertising-disclosure, functional-food and YMYL checklist behind Gate 4/Gate 5 `sponsored`, `affiliate`, `topic_class` checks and the author box (Phase K)
 
 For named Google update or Search currentness work, resolve the reviewed ledger
 from repository-root `data/google-updates.json` first. If this is a standalone
@@ -242,7 +243,7 @@ Standard execution order for `/blog write`:
    ```bash
    BLOG_SCRIPT_DIR="${CLAUDE_BLOG_SCRIPTS_DIR:-$HOME/.claude/scripts}"
    case "$BLOG_SCRIPT_DIR" in /*) ;; *) echo "ERROR: script dir must be absolute" >&2; exit 1 ;; esac
-   python3 "$BLOG_SCRIPT_DIR/generate_hero.py" --topic "<topic>" --out "<folder>"
+   python3 "$BLOG_SCRIPT_DIR/generate_hero.py" --topic "<topic>" --out "<folder>"   # lang: vi adds --query "<short English query>", see docs/vi-keywords-hero.md
    python3 "$BLOG_SCRIPT_DIR/blog_render.py" --md "<folder>/<slug>.md" --out-dir "<folder>"
    python3 "$BLOG_SCRIPT_DIR/blog_preflight.py" --draft "<folder>" --strict
    ```

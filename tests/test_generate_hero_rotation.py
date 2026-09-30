@@ -178,3 +178,45 @@ class TestSingleKeyStillWorks:
 
         assert result == {"source": "pexels", "path": "x"}
         assert called == ["unsplash", "pexels"]
+
+
+class TestQueryOverride:
+    """Phase L: --query replaces topic+tags as the stock search text."""
+
+    def test_premium_stock_uses_query_override(self, hero_module, monkeypatch, tmp_path):
+        seen = []
+        for name in ("_try_unsplash", "_try_pixabay"):
+            monkeypatch.setattr(hero_module, name, lambda *a, **k: None)
+        monkeypatch.setattr(
+            hero_module, "_try_pexels", lambda q, *a, **k: seen.append(q) or {"source": "pexels", "path": "x"}
+        )
+        hero_module._try_premium_stock("máy pha cà phê", ["cà phê"], tmp_path, 1200, 630, "coffee machine")
+        assert seen == ["coffee machine"]
+
+    def test_premium_stock_default_query_unchanged(self, hero_module, monkeypatch, tmp_path):
+        seen = []
+        for name in ("_try_unsplash", "_try_pixabay"):
+            monkeypatch.setattr(hero_module, name, lambda *a, **k: None)
+        monkeypatch.setattr(
+            hero_module, "_try_pexels", lambda q, *a, **k: seen.append(q) or {"source": "pexels", "path": "x"}
+        )
+        hero_module._try_premium_stock("coffee", ["a", "b"], tmp_path, 1200, 630)
+        assert seen == ["coffee a b"]
+
+    def test_cli_passes_query_to_stock_and_openverse(self, hero_module, monkeypatch, tmp_path):
+        got = {}
+        monkeypatch.setattr(hero_module, "_try_gemini", lambda *a, **k: None)
+        monkeypatch.setattr(
+            hero_module, "_try_premium_stock",
+            lambda t, tags, o, w, h, q=None: got.update(stock=q) or None,
+        )
+        monkeypatch.setattr(
+            hero_module, "_try_openverse",
+            lambda t, tags, o, w, h, q=None: got.update(ov=q) or {"source": "openverse", "path": "x"},
+        )
+        monkeypatch.setattr(
+            "sys.argv",
+            ["generate_hero.py", "--topic", "máy pha cà phê", "--out", str(tmp_path), "--query", "coffee machine"],
+        )
+        assert hero_module.main() == 0
+        assert got == {"stock": "coffee machine", "ov": "coffee machine"}

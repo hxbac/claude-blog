@@ -403,3 +403,33 @@ def test_api_error_response_surfaces_as_structured_error(monkeypatch, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["error"] == "api_error"
     assert out["message"] == "Invalid Field"
+
+
+class TestSearchVolume:
+    """Phase L: search-volume subcommand (mocked, no network)."""
+
+    def test_caps_keywords_and_normalizes(self, monkeypatch, capsys):
+        from types import SimpleNamespace
+
+        import env_file
+        import dataforseo_labs as dfl
+
+        monkeypatch.setenv("DATAFORSEO_USERNAME", "u")
+        monkeypatch.setenv("DATAFORSEO_PASSWORD", "p")
+        posted = {}
+
+        def fake_post(url, json=None, headers=None, **kw):
+            posted["payload"] = json
+            body = {"status_code": 20000, "tasks": [{"status_code": 20000, "result": [
+                {"items": [{"keyword": "mỹ phẩm", "keyword_info": {"search_volume": 123}}]}]}]}
+            return SimpleNamespace(json=lambda: body, raise_for_status=lambda: None)
+
+        monkeypatch.setattr(dfl.requests, "post", fake_post)
+        monkeypatch.setattr(dfl, "_print_cost_estimate", lambda *a, **k: None)
+        args = SimpleNamespace(keywords=["mỹ phẩm", "mỹ phẩm", "a", "b", "c"], limit=3,
+                               location=2704, language="vi", keyword_filter=None)
+        dfl.cmd_search_volume(args)
+        out = json.loads(capsys.readouterr().out)
+        assert posted["payload"][0]["keywords"] == ["mỹ phẩm", "a", "b"]
+        assert posted["payload"][0]["location_code"] == 2704
+        assert out["keywords"][0]["search_volume"] == 123

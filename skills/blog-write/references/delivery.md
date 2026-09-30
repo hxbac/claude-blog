@@ -8,6 +8,7 @@ Writer-specific companion to `skills/blog/references/blog-delivery-contract.md`.
    - Run `python3 scripts/blog_preflight.py --draft <folder> --gate 1`.
    - If a valid local hero already exists, keep it.
    - If generation is needed, use `blog-image` or `python3 scripts/generate_hero.py --topic "<title>" --tags "<tags>" --out <folder>`.
+   - For `lang: vi`, first translate the topic yourself into a short English stock-photo query (2 to 4 words, e.g. "coffee machine") and add `--query "<that>"`; do not call any translation API. See `docs/vi-keywords-hero.md`.
    - Record provider, model ID, prompt, license, and attribution.
 2. Format completeness:
    - Run `python3 scripts/blog_render.py --md <slug>.md --out-dir <folder>`.

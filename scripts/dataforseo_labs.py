@@ -4,6 +4,7 @@
 Endpoints:
     page_intersection  keywords where two or more URLs both rank
     ranked_keywords    all keywords one URL ranks for
+    search_volume      monthly volume for a list of keywords (live, one POST)
 
 Environment: DATAFORSEO_USERNAME (or DATAFORSEO_LOGIN), DATAFORSEO_PASSWORD
 Output: JSON on stdout. Credentials are never printed, logged, or echoed.
@@ -16,6 +17,7 @@ queue is materially cheaper for non-urgent lookups.
 Usage:
     python3 dataforseo_labs.py ranked-keywords <url> [--location 2704] [--language vi]
     python3 dataforseo_labs.py page-intersection <url1> <url2> [...] [--location 2704]
+    python3 dataforseo_labs.py search-volume <kw1> <kw2> [...] [--location 2704] [--language vi]
 """
 
 from __future__ import annotations
@@ -58,6 +60,7 @@ ENDPOINTS = {
     "ranked_keywords_get": "/dataforseo_labs/google/ranked_keywords/task_get/advanced",
     "page_intersection": "/dataforseo_labs/google/page_intersection/task_post",
     "page_intersection_get": "/dataforseo_labs/google/page_intersection/task_get/advanced",
+    "keyword_overview_live": "/dataforseo_labs/google/keyword_overview/live",
 }
 
 # Names as they appear in claude-seo/scripts/dataforseo_costs.py's COST_MODEL,
@@ -67,6 +70,7 @@ ENDPOINTS = {
 COST_ENDPOINTS = {
     "ranked_keywords": "dataforseo_labs_google_ranked_keywords",
     "page_intersection": "dataforseo_labs_google_domain_intersection",
+    "search_volume": "dataforseo_labs_google_keyword_overview",
 }
 
 # Local fallback estimates (USD per task), used only when the sibling
@@ -76,7 +80,13 @@ COST_ENDPOINTS = {
 LOCAL_COST_FALLBACK = {
     "ranked_keywords": 0.012,
     "page_intersection": 0.012,
+    # keyword_overview: about $0.01 per request plus $0.0001 per keyword.
+    "search_volume": 0.02,
 }
+
+# Hard ceiling on keywords per search-volume request, so a careless caller
+# cannot turn one call into a large bill. Callers may lower it, not raise it.
+SEARCH_VOLUME_MAX_KEYWORDS = 200
 
 # Default polling configuration (standard queue)
 POLL_INITIAL_DELAY = 2.0
@@ -274,6 +284,27 @@ def _extract_items(response: dict[str, Any]) -> list[dict[str, Any]]:
     return items
 
 
+def _post_live(
+    endpoint_key: str,
+    payload: list[dict[str, Any]],
+    headers: dict[str, str],
+) -> dict[str, Any]:
+    """POST to a live (single round trip) endpoint and return the response."""
+    url = f"{API_BASE}{ENDPOINTS[endpoint_key]}"
+    print(f"Posting live request to {endpoint_key}...", file=sys.stderr)
+    resp = requests.post(url, json=payload, headers=headers, timeout=60, verify=True)
+    resp.raise_for_status()
+    data = resp.json()
+    _raise_on_task_status(data)
+    if data.get("status_code") != 20000:
+        return {
+            "error": "api_error",
+            "status_code": data.get("status_code"),
+            "message": data.get("status_message", "Unknown API error"),
+        }
+    return data
+
+
 # ---------------------------------------------------------------------------
 # Normalization
 # ---------------------------------------------------------------------------
@@ -453,6 +484,55 @@ def cmd_page_intersection(args: argparse.Namespace) -> None:
     json.dump(output, sys.stdout, indent=2)
 
 
+def cmd_search_volume(args: argparse.Namespace) -> None:
+    """Monthly search volume for a list of keywords (one live request)."""
+    _get_credentials()  # fast fail with the historical structured message
+    keywords = []
+    for kw in args.keywords:
+        kw = vi_normalize(kw).strip()
+        if kw and kw not in keywords:
+            keywords.append(kw)
+    cap = max(1, min(args.limit, SEARCH_VOLUME_MAX_KEYWORDS))
+    keywords = keywords[:cap]
+    _print_cost_estimate("search_volume", item_count=len(keywords))
+
+    payload: dict[str, Any] = {
+        "keywords": keywords,
+        "location_code": args.location,
+        "language_code": args.language,
+    }
+
+    def attempt(slot: env_file.Slot) -> dict[str, Any]:
+        headers = _auth_header(
+            slot.values["DATAFORSEO_USERNAME"], slot.values["DATAFORSEO_PASSWORD"]
+        )
+        return _post_live("keyword_overview_live", [payload], headers)
+
+    result_resp = _run_rotated(attempt)
+    if "error" in result_resp:
+        json.dump(result_resp, sys.stdout, indent=2)
+        return
+
+    rows = []
+    for item in _extract_items(result_resp):
+        info = item.get("keyword_info") or {}
+        rows.append({
+            "keyword": item.get("keyword", ""),
+            "search_volume": info.get("search_volume"),
+            "cpc": info.get("cpc"),
+            "competition": info.get("competition"),
+        })
+    output = {
+        "status": "success",
+        "endpoint": "search_volume",
+        "location_code": args.location,
+        "language_code": args.language,
+        "requested": len(keywords),
+        "keywords": rows,
+    }
+    json.dump(output, sys.stdout, indent=2)
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -489,6 +569,18 @@ def main() -> None:
     p_intersection.add_argument("urls", nargs="+", help="Two or more target URLs")
     add_common(p_intersection)
 
+    p_volume = sub.add_parser(
+        "search-volume", help="Monthly search volume for a list of keywords"
+    )
+    p_volume.add_argument("keywords", nargs="+", help="Keywords to look up")
+    p_volume.add_argument(
+        "--limit",
+        type=int,
+        default=SEARCH_VOLUME_MAX_KEYWORDS,
+        help=f"Max keywords sent (hard ceiling {SEARCH_VOLUME_MAX_KEYWORDS})",
+    )
+    add_common(p_volume)
+
     args = parser.parse_args()
 
     if args.command == "page-intersection" and len(args.urls) < 2:
@@ -505,6 +597,7 @@ def main() -> None:
     dispatch = {
         "ranked-keywords": cmd_ranked_keywords,
         "page-intersection": cmd_page_intersection,
+        "search-volume": cmd_search_volume,
     }
     dispatch[args.command](args)
 

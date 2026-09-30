@@ -16,6 +16,12 @@ Ladder:
 Usage:
     python3 scripts/generate_hero.py --topic "<title>" --tags "a,b,c" \\
         --out <draft-folder> [--width 1200] [--height 630] [--json]
+        [--query "<short English search query>"]
+
+--query overrides the stock-photo search text (Unsplash, Pexels, Pixabay,
+Openverse). Stock indexes are English-first, so for a Vietnamese post the
+caller translates the topic to a short English query and passes it here;
+the Gemini prompt still uses --topic as written.
 
 Returns 0 on success (hero.<ext> + hero-credit.txt written). Returns 1
 when every ladder step is exhausted with no successful generation.
@@ -591,9 +597,10 @@ def _try_pixabay(query: str, out_dir: Path, width: int, height: int) -> Optional
     return _run_rotated_source("pixabay", attempt)
 
 
-def _try_premium_stock(topic: str, tags: list[str], out_dir: Path, width: int, height: int) -> Optional[dict]:
+def _try_premium_stock(topic: str, tags: list[str], out_dir: Path, width: int, height: int,
+                       query: Optional[str] = None) -> Optional[dict]:
     """Ladder step 3: Unsplash > Pexels > Pixabay (first whose key is set)."""
-    query = " ".join([topic] + tags[:3])
+    query = query or " ".join([topic] + tags[:3])
     for fn in (_try_unsplash, _try_pexels, _try_pixabay):
         result = fn(query, out_dir, width, height)
         if result:
@@ -601,13 +608,14 @@ def _try_premium_stock(topic: str, tags: list[str], out_dir: Path, width: int, h
     return None
 
 
-def _try_openverse(topic: str, tags: list[str], out_dir: Path, width: int, height: int) -> Optional[dict]:
+def _try_openverse(topic: str, tags: list[str], out_dir: Path, width: int, height: int,
+                   query: Optional[str] = None) -> Optional[dict]:
     """Ladder step 4: public API, no key required, CC-licensed."""
     # Openverse matches the query string conjunctively, so appending style words
     # like "editorial illustration" drops almost every topic to zero results
     # ("coffee shop" returns 240; "coffee shop editorial illustration" returns 0).
     # Search the topic and its tags only, and let aspect_ratio/size do the framing.
-    query = " ".join([topic] + tags[:3])
+    query = query or " ".join([topic] + tags[:3])
     params = urllib.parse.urlencode({
         "q": query, "aspect_ratio": "wide", "license": "cc0,by,by-sa",
         "size": "large", "page_size": 10,
@@ -670,8 +678,10 @@ def main() -> int:
     parser.add_argument("--width", type=int, default=DEFAULT_WIDTH)
     parser.add_argument("--height", type=int, default=DEFAULT_HEIGHT)
     parser.add_argument("--model", default=DEFAULT_GEMINI_MODEL, help="Gemini image model name")
+    parser.add_argument("--query", default="", help="Short English stock-photo search query (overrides topic+tags for stock search)")
     parser.add_argument("--json", action="store_true", help="Emit JSON result to stdout")
     args = parser.parse_args()
+    query = args.query.strip() or None
 
     dims_ok, dims_error = _validate_dimensions(args.width, args.height)
     if not dims_ok:
@@ -711,8 +721,8 @@ def main() -> int:
 
     ladder: list[tuple[str, Callable[[], Optional[dict]]]] = [
         ("gemini", lambda: _try_gemini(args.topic, tags, out_dir, args.width, args.height, args.model)),
-        ("premium-stock", lambda: _try_premium_stock(args.topic, tags, out_dir, args.width, args.height)),
-        ("openverse", lambda: _try_openverse(args.topic, tags, out_dir, args.width, args.height)),
+        ("premium-stock", lambda: _try_premium_stock(args.topic, tags, out_dir, args.width, args.height, query)),
+        ("openverse", lambda: _try_openverse(args.topic, tags, out_dir, args.width, args.height, query)),
     ]
 
     for name, fn in ladder:
