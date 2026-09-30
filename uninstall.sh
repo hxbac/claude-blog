@@ -19,7 +19,7 @@ main() {
         "blog-write"
     )
     local helper_scripts=(
-        "ai_structure.py"
+        "ai_structure.py" "tell_corpus.py"
         "analyze_blog.py" "blog_preflight.py" "blog_render.py" "blog_hygiene.py" "cognitive_load.py"
         "discourse_research.py" "generate_hero.py" "load_untrusted_root.py"
         "lint_prose.py" "sync_flow.py" "vi_text.py" "vi_profile.py" "vi_prose.py" "vi_register.py" "vi_compliance.py" "vi_keywords.py" "publish_cms.py" "repurpose_vi.py" "draft_rubric.py" "sync_vi_tells.py" "dataforseo_labs.py" "env_file.py"

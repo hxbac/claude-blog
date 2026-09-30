@@ -49,6 +49,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import ai_structure  # noqa: E402
 import draft_rubric  # noqa: E402
+import tell_corpus  # noqa: E402
 import vi_profile  # noqa: E402
 import vi_register  # noqa: E402
 import vi_text  # noqa: E402
@@ -2722,6 +2723,8 @@ def main(args: argparse.Namespace) -> None:
     # Batch mode
     if path.is_dir() and getattr(args, 'batch', False):
         batch_result = _process_batch(path, sort_key, mode)
+        for r in batch_result['results']:
+            tell_corpus.maybe_record(r.get('file', ''), r, record=getattr(args, 'record', False))
 
         if fmt == 'markdown':
             for r in batch_result['results']:
@@ -2750,6 +2753,8 @@ def main(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     result = analyze_file(str(path), mode)
+    # Phase O: tell corpus. Silent, never fatal, only under blog-results/ or --record.
+    tell_corpus.maybe_record(path, result, record=getattr(args, 'record', False))
 
     # Category detail mode
     if category:
@@ -2831,6 +2836,10 @@ Optional dependencies (graceful degradation):
                         help='draft: score the prose of an unpublished draft and list site-level '
                              'items as a pre-publish checklist; full: the published-page rubric; '
                              'auto (default): draft for .md/.mdx, full for .html')
+
+    parser.add_argument('--record', action='store_true',
+                        help='append a Vietnamese draft analysis to the tell corpus '
+                             '(workspace/.metrics/tells.jsonl) even outside blog-results/')
 
     args = parser.parse_args()
 

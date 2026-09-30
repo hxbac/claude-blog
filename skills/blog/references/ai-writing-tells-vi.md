@@ -191,3 +191,11 @@ Chạy `python3 scripts/ai_structure.py <file> --lang vi` sau khi viết xong đ
 xem điểm cụm (cluster score): số loại dấu hiệu khác nhau cùng xuất hiện
 trong một mục. Một dấu hiệu là nhiễu; bốn dấu hiệu trong cùng một đoạn thì
 không.
+
+## Kho dữ liệu cụm từ
+
+Mỗi lần `scripts/analyze_blog.py` chấm một bản nháp tiếng Việt nằm trong
+`blog-results/` (hoặc khi có `--record`), `scripts/tell_corpus.py` ghi một dòng
+vào `workspace/.metrics/tells.jsonl`: cụm đã khớp, điểm, cụm lặp lại, không có
+nội dung bài. Đặt `BLOG_TELLS_FILE` để đổi vị trí. Hằng tháng người vận hành
+chạy `tools/tells_report.py` ở hub để chọn cụm đưa vào `vi_profile.py`.
