@@ -221,6 +221,8 @@ Route user-facing commands by the command table above. The package contains 31 s
 
 ## Agents
 
+Each agent below is a named role. On Claude Code, dispatch a role with the Task tool using the subagent of the same name (`agents/<name>.md`). On Codex, dispatch it by asking for the custom agent of that name (`.codex/agents/<name>.toml`, `blog-researcher`, `blog-writer` and `blog-reviewer` are provided; `blog-seo` and `blog-translator` are not, so do that step inline). The task prompt carries the same inputs either way.
+
 | Agent | Role |
 |-------|------|
 | `blog-researcher` | Research specialist: finds statistics, sources, images, competitive data |
@@ -234,11 +236,11 @@ Route user-facing commands by the command table above. The package contains 31 s
 Standard execution order for `/blog write`:
 
 1. **Parse**: Identify topic, detect platform, select template
-2. **Research**: Spawn `blog-researcher` agent for statistics, sources, SERP data
+2. **Research**: Dispatch the `blog-researcher` role for statistics, sources, SERP data
 3. **Outline**: Build section structure from template + research gaps
-4. **Write**: Spawn `blog-writer` agent with research packet and outline
-5. **Optimize**: Spawn `blog-seo` agent for on-page validation
-6. **Score**: Spawn `blog-reviewer` agent for 100-point quality audit
+4. **Write**: Dispatch the `blog-writer` role with research packet and outline
+5. **Optimize**: Dispatch the `blog-seo` role for on-page validation
+6. **Score**: Dispatch the `blog-reviewer` role for 100-point quality audit
 6.5. **Delivery Contract Enforcement (v1.9.0)**: Run the 5-gate preflight per `skills/blog/references/blog-delivery-contract.md`. Resolve helper scripts from a trusted absolute install path such as `$HOME/.claude/scripts` or an operator-pinned absolute `CLAUDE_BLOG_SCRIPTS_DIR`; never from the current working directory:
    ```bash
    BLOG_SCRIPT_DIR="${CLAUDE_BLOG_SCRIPTS_DIR:-$HOME/.claude/scripts}"
