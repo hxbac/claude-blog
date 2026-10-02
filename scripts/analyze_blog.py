@@ -1332,7 +1332,7 @@ def analyze_schema(content: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _site_link_context(frontmatter: dict[str, Any], body: str) -> tuple[dict[str, Any] | None, frozenset | None]:
+def _site_link_context(frontmatter: dict[str, Any], body: str, raw: str = '') -> tuple[dict[str, Any] | None, frozenset | None]:
     """(link summary, hosts) when the post's canonical host is a configured
     client site (``sites/`` or ``$CLAUDE_BLOG_SITES_ROOT``), else (None, None).
     Nothing changes for a post without a site."""
@@ -1345,7 +1345,7 @@ def _site_link_context(frontmatter: dict[str, Any], body: str) -> tuple[dict[str
         if site_dir is None:
             return None, None
         site = internal_links.load_site(site_dir)
-        summary = internal_links.link_summary(body, frontmatter, site)
+        summary = internal_links.link_summary(body, frontmatter, site, raw_md=raw)
         return summary, frozenset({site.host, 'www.' + site.host} - {''})
     except Exception:
         return None, None
@@ -2349,7 +2349,7 @@ def analyze_file(file_path: str, mode: str | None = 'full') -> dict[str, Any]:
         body = strip_frontmatter(content)
     language = _detect_language(frontmatter, body)
     mode = _resolve_mode(mode, path.suffix)
-    site_links, site_hosts = _site_link_context(frontmatter, body)
+    site_links, site_hosts = _site_link_context(frontmatter, body, content)
 
     # Strip markdown formatting for plain-text analysis
     plain_text = _plain_text_for_analysis(body)

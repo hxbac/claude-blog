@@ -6,6 +6,7 @@ in a Vietnamese draft. Nothing here touches the live site.
 
 Usage:
     python3 scripts/internal_links.py candidates --topic "..." [--site d] [--top 25] [--json]
+    python3 scripts/internal_links.py products --query "balo nam" [--site d] [--top N] [--in-stock] [--price-min X --price-max Y] [--json]
     python3 scripts/internal_links.py suggest  --draft blog-results/<slug>/ [--site d] [--plan-out f] [--json]
     python3 scripts/internal_links.py apply    --draft blog-results/<slug>/ [--site d] [--plan f] [--dry-run]
     python3 scripts/internal_links.py reverse  --draft blog-results/<slug>/ [--site d] [--top 8] [--json]
@@ -68,7 +69,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from site_inventory import (  # noqa: E402
     InventoryError, find_site_for_host, host_key, idf_table, list_sites,
     load_inventory, load_site_config, norm_url, resolve_site, row_weights,
-    search, sites_root, tokenize,
+    search, short_name, sites_root, tokenize,
 )
 from vi_text import normalize, to_ascii  # noqa: E402
 
@@ -193,6 +194,45 @@ def parse_frontmatter(text: str) -> tuple:
                 value = value[1:-1]
             fm[key.strip()] = value
     return fm, m.end()
+
+
+def frontmatter_list(text: str, key: str) -> list:
+    """Values of a list key in the frontmatter, block form (``key:`` then ``- item``
+    lines, indented or not) or inline form (``key: [a, b]``). Quotes are removed."""
+    m = re.match(r"^﻿?---[ \t]*\n(.*?)\n---[ \t]*(?:\n|$)", text, re.DOTALL)
+    if not m:
+        return []
+    out: list = []
+    inside = False
+    for line in m.group(1).split("\n"):
+        stripped = line.strip()
+        if not inside:
+            head, sep, rest = line.partition(":")
+            if sep and head.strip() == key and not line.startswith((" ", "\t")):
+                rest = rest.strip()
+                if rest.startswith("["):
+                    return [v.strip().strip("\"'") for v in rest.strip("[]").split(",") if v.strip().strip("\"'")]
+                if rest:
+                    return [rest.strip("\"'")]
+                inside = True
+            continue
+        if stripped.startswith("- "):
+            val = stripped[2:].strip().strip("\"'")
+            if val:
+                out.append(val)
+        elif stripped and not stripped.startswith("#"):
+            break
+    return out
+
+
+def is_roundup(fm: dict) -> bool:
+    return fold(fm.get("content_type", "")).strip() == "roundup"
+
+
+def listed_products(text: str, fm: dict) -> list:
+    """Product URLs a roundup lists (frontmatter ``products:``), in order; an empty
+    list for any other post, whatever else the frontmatter holds."""
+    return frontmatter_list(text, "products") if is_roundup(fm) else []
 
 
 @dataclass
@@ -677,6 +717,12 @@ class Policy:
     total: int = 0
     products: int = 0
     exact: int = 0
+    #: Roundup only: normalised URLs of the products the post lists (frontmatter
+    #: ``products:``), and the variant keys of those products. Links to them are
+    #: the point of the post, so they are outside the density band and the product
+    #: share, and ``suggest`` / ``apply`` never add another one.
+    listed: frozenset = frozenset()
+    listed_variants: frozenset = frozenset()
 
     def seed(self, found: list) -> None:
         for f in found:
@@ -684,6 +730,8 @@ class Policy:
             if f.row is not None and f.row.get("type") == "product":
                 self.variants.add(_variant_key(f.row))
             self.blocks_linked.add(f.block)
+            if norm_url(f.url) in self.listed:
+                continue
             self.total += 1
             self.products += f.kind == "product"
             self.exact += f.anchor_type == "exact"
@@ -692,6 +740,9 @@ class Policy:
         why = row_eligible(row)
         if why:
             return why
+        if norm_url(row["url"]) in self.listed or (
+                row.get("type") == "product" and _variant_key(row) in self.listed_variants):
+            return "sản phẩm này nằm trong danh sách top của bài, đã có liên kết ở phần sản phẩm"
         if is_self(row, self.canonical, self.slug):
             return "đây chính là bài đang viết (liên kết tới chính nó)"
         if norm_url(row["url"]) in self.urls:
@@ -744,6 +795,7 @@ class Draft:
     buying_guide: bool
     intro_block: Optional[int]
     intro_end: int
+    products: list = field(default_factory=list)
 
 
 def load_draft(path: Path) -> Draft:
@@ -756,7 +808,8 @@ def load_draft(path: Path) -> Draft:
                  words=body_word_count(blocks), canonical=fm.get("canonical", ""),
                  slug=fm.get("slug", ""), buying_guide=is_buying_guide(fm),
                  intro_block=intro.index if intro else None,
-                 intro_end=first_sentence_end(intro.text) if intro else 0)
+                 intro_end=first_sentence_end(intro.text) if intro else 0,
+                 products=listed_products(text, fm))
 
 
 def pick_site(site_arg: Optional[str], canonical: str = "") -> Site:
@@ -848,6 +901,267 @@ def find_duplicates(site: Site, topic: str, threshold: float = DUP_THRESHOLD,
     return out[:5]
 
 
+# ---------------------------------------------------------------------------
+# Query understanding and the product picker (Phase T)
+# ---------------------------------------------------------------------------
+#
+# Head noun rule. A Vietnamese noun phrase puts its head first and its
+# modifiers after it ("balo nam đi học", "ví da nam", "máy pha cà phê tốt
+# nhất"). To find the head of a query:
+#   1. drop every token that holds a digit ("top 10", "2026", "No.10"), and
+#      the intent phrases and words ("top", "tốt nhất", "giá rẻ", "nên mua",
+#      "so sánh", "review", "cách chọn", "đánh giá", ...);
+#   2. skip leading function words and classifiers ("các", "những", "chiếc");
+#   3. the head is the run of tokens up to the first boundary, at most 4 tokens:
+#      an audience word (nam, nữ, bé, trẻ em), a preposition (cho, để, đi, dành,
+#      dùng, với, của, ...), a function word, or a quality adjective (đẹp, rẻ,
+#      bền, nhẹ, chống, ...). So "ví da" and "máy pha cà phê" keep their
+#      second and later syllables, while "balo nam đi học" gives "balo".
+# A word is judged by its own spelling when the query carries diacritics ("đi"
+# is a preposition, "di" in "di động" is not, "da" leather is not "đa"), and by
+# its folded spelling, with a short safe list, when the query has none.
+# A product qualifies only when every head token is in its title or category
+# (or its URL slug, when the title carries no diacritics). The audience word is
+# a soft filter: "nam" drops products marked "nữ" and not "nam", and the reverse.
+
+INTENT_PHRASES = (
+    ("tot", "nhat"), ("re", "nhat"), ("hot", "nhat"), ("moi", "nhat"), ("gia", "re"), ("nen", "mua"),
+    ("nen", "chon"), ("so", "sanh"), ("danh", "gia"), ("cach", "chon"), ("huong", "dan", "chon"),
+    ("huong", "dan", "mua"), ("huong", "dan"), ("kinh", "nghiem", "mua"), ("chat", "luong"), ("uy", "tin"),
+    ("chinh", "hang"), ("cao", "cap"), ("ban", "chay"), ("hang", "dau"), ("dang", "mua"), ("dang", "tien"),
+    ("goi", "y"), ("de", "xuat"), ("phai", "co"), ("nhieu", "nguoi", "mua"),
+)
+INTENT_FOLDED = frozenset("top review best mua chon cach nhat loai".split())
+#: Classifiers and quantity words that may precede the head ("10 chiếc kính mát").
+LEADING_SKIP = frozenset("chiếc cái loại những các mấy vài".split())
+LEADING_SKIP_PLAIN = frozenset("chiec cai loai nhung cac".split())  # not "may": máy
+#: Words that end the head, in their own spelling (diacritic queries).
+HEAD_BOUNDARY = frozenset(
+    "nam nữ bé trẻ em trai gái cho để đi dành dùng với của khi tại ở trong và hay hoặc từ "
+    "đẹp rẻ tốt bền nhẹ chống siêu xịn mới hot chính hãng thật".split())
+#: The subset that is safe to recognise in a query typed without diacritics: the
+#: others collide with nouns ("tai nghe", "tu lanh", "dung cu", "cua cuon", "voi sen").
+HEAD_BOUNDARY_PLAIN = frozenset("nam nu cho va hay hoac chong sieu xin hot".split())
+MAX_HEAD_TOKENS = 4
+AUDIENCE = {"nam": "nam", "nữ": "nu", "nu": "nu"}
+_NUM_RE = re.compile(r"\d")
+_YEAR_RE = re.compile(r"^(?:19|20)\d\d$")
+
+
+def _has_marks(text: str) -> bool:
+    return normalize(text).lower() != fold(text)
+
+
+def parse_query(query: str) -> dict:
+    """Split a topic or search phrase into its head noun and the rest.
+
+    Returns ``head`` (list of original lowercase tokens), ``terms`` (the other
+    content tokens), ``audience`` ("nam", "nu" or ""), ``number`` (the N of "top
+    N", else None) and ``marks`` (True when the query carries diacritics)."""
+    raw = [t.lower() for t in _WORD_RE.findall(normalize(query or ""))]
+    marks = any(_has_marks(t) for t in raw)
+    number = None
+    for i, t in enumerate(raw):
+        if t.isdigit() and not _YEAR_RE.match(t) and 0 < int(t) <= 50:
+            if (i > 0 and raw[i - 1] == "top") or number is None:
+                number = int(t)
+    toks = [(t, fold(t)) for t in raw if not _NUM_RE.search(t)]
+    # intent phrases first (folded, diacritics do not matter), then single intent words
+    out: list = []
+    i = 0
+    while i < len(toks):
+        hit = next((len(ph) for ph in INTENT_PHRASES
+                    if tuple(f for _, f in toks[i:i + len(ph)]) == ph), 0)
+        if hit:
+            i += hit
+            continue
+        if toks[i][1] not in INTENT_FOLDED:
+            out.append(toks[i])
+        i += 1
+    boundary = HEAD_BOUNDARY if marks else HEAD_BOUNDARY_PLAIN
+
+    def is_boundary(orig: str, fld: str) -> bool:
+        return (orig in boundary if marks else fld in boundary) or is_stop(orig)
+
+    k = 0
+    while k < len(out) and (out[k][0] in LEADING_SKIP or out[k][0] in LEADING_SKIP_PLAIN
+                            or is_stop(out[k][0])):
+        k += 1
+    head: list = []
+    while k < len(out) and len(head) < MAX_HEAD_TOKENS and not is_boundary(*out[k]):
+        head.append(out[k][0])
+        k += 1
+    terms = [o for o, f in out[k:] if not is_stop(o)]
+    audience = next((AUDIENCE[t] for t in terms if t in AUDIENCE), "")
+    return {"head": head, "terms": terms, "audience": audience, "number": number, "marks": marks}
+
+
+def _row_tokens(row: dict) -> tuple:
+    """(original tokens of title and category, folded set incl. slug, ascii-only?)"""
+    text = " ".join([row.get("title", ""), row.get("category", "")])
+    orig = [t.lower() for t in _WORD_RE.findall(normalize(text))]
+    ascii_only = not any(_has_marks(t) for t in orig)
+    slug = [t for t in _WORD_RE.findall(urllib.parse.urlparse(row.get("url", "")).path.lower().replace("-", " "))]
+    folded = {fold(t) for t in orig}
+    if ascii_only or not row.get("title"):
+        folded |= set(slug)
+        orig = orig + slug
+    return orig, folded, ascii_only
+
+
+def head_matches(row: dict, info: dict) -> bool:
+    """Every head token is in the title or category of ``row`` (slug when the title
+    has no diacritics). With a diacritic query, tokens compare in their own spelling
+    unless the row is written without diacritics."""
+    head = info["head"]
+    if not head:
+        return True
+    orig, folded, ascii_only = _row_tokens(row)
+    have = set(orig)
+    for t in head:
+        if info["marks"] and not ascii_only:
+            if t not in have:
+                return False
+        elif fold(t) not in folded:
+            return False
+    return True
+
+
+def _head_contiguous(row: dict, info: dict) -> bool:
+    head = [fold(t) for t in info["head"]]
+    title = [fold(t) for t in _WORD_RE.findall(normalize(row.get("title", "")))]
+    n = len(head)
+    return bool(head) and any(title[i:i + n] == head for i in range(len(title) - n + 1))
+
+
+def audience_conflict(row: dict, audience: str) -> bool:
+    """True when the row is marked for the other audience only."""
+    if not audience:
+        return False
+    toks = {fold(t) for t in _WORD_RE.findall(normalize(" ".join([row.get("title", ""), row.get("category", "")])))}
+    other = "nu" if audience == "nam" else "nam"
+    return other in toks and audience not in toks
+
+
+def picker_key(row: dict) -> str:
+    """Colour and size variants of one product share a key."""
+    title = fold(row.get("title", ""))
+    title = re.sub(r"\s+(?:mau|size|kich thuoc|kich co)\s+.*$", "", title)
+    return re.sub(r"\s+", " ", title).strip()
+
+
+def display_name(row: dict) -> str:
+    """Product name for a list: the title up to its SEO tail, without the colour or
+    size, so one design does not read as "... 016 Màu"."""
+    name = short_name(row, max_words=12)
+    name = re.sub(r"\s+(?:màu|mầu|size|kích thước)\b.*$", "", name, flags=re.I)
+    return name.strip(" ,;:-") or row.get("title", "")
+
+
+def _price_number(price: str) -> Optional[float]:
+    m = re.search(r"\d[\d.,]*", price or "")
+    if not m:
+        return None
+    digits = m.group(0)
+    if re.fullmatch(r"\d{1,3}(?:[.,]\d{3})+", digits):
+        digits = re.sub(r"[.,]", "", digits)
+    else:
+        digits = digits.replace(",", "")
+    try:
+        return float(digits)
+    except ValueError:
+        return None
+
+
+def pick_products(site: Site, query: str, top: Optional[int] = None, *, in_stock: bool = False,
+                  price_min: Optional[float] = None, price_max: Optional[float] = None) -> dict:
+    """The products a "top N" post may list: only those whose title or category
+    holds the head noun of ``query``. Never padded: when fewer than N qualify the
+    answer says how many exist."""
+    info = parse_query(query)
+    want = top or info["number"] or 5
+    head_text = " ".join(info["head"])
+    res = {"site": site.name, "query": query, "head": head_text, "audience": info["audience"],
+           "requested": want, "qualified": 0, "returned": 0, "items": [], "note": "", "shorter": []}
+    if not info["head"]:
+        res["note"] = ("Không tách được tên sản phẩm từ yêu cầu này. Hỏi người viết đúng một câu: "
+                       "họ muốn top sản phẩm nào (ví dụ balo, ví da)?")
+        return res
+    pool = [r for r in site.rows if r.get("type") == "product" and not row_eligible(r)
+            and head_matches(r, info) and not audience_conflict(r, info["audience"])]
+
+    def kept(r: dict) -> bool:
+        price = _price_number(r.get("price", ""))
+        if price_min is not None and (price is None or price < price_min):
+            return False
+        if price_max is not None and (price is None or price > price_max):
+            return False
+        return not (in_stock and _unavailable(r))
+
+    pool = [r for r in pool if kept(r)]
+    terms = " ".join(info["head"] + info["terms"])
+    scores = {r["url"]: r["score"] for r in search(pool, terms, type="product", top=len(pool))} if pool else {}
+    groups: dict = {}
+    for r in pool:
+        base = scores.get(r["url"], 0.0) * _priority(r)
+        if _head_contiguous(r, info):
+            base *= 1.5
+        groups.setdefault(picker_key(r), []).append((r, base))
+    items = []
+    for _, members in groups.items():
+        # the in-stock variant with the best score stands for the group
+        members.sort(key=lambda m: (_unavailable(m[0]), -m[1], m[0]["url"]))
+        rep, score = members[0]
+        items.append({
+            "url": rep["url"], "name": display_name(rep), "title": rep.get("title", ""),
+            "category": rep.get("category", ""), "price": rep.get("price", ""),
+            "in_stock": rep.get("in_stock", ""), "variants": len(members),
+            "variant_urls": [m[0]["url"] for m in members], "score": round(score, 4),
+            "unavailable": all(_unavailable(m[0]) for m in members),
+        })
+    items.sort(key=lambda d: (d["unavailable"], -d["score"], d["url"]))
+    res["qualified"] = len(items)
+    res["items"] = items[:want]
+    res["returned"] = len(res["items"])
+    if len(items) < want:
+        res["note"] = (f"Web chỉ có {len(items)} sản phẩm khớp \"{head_text}\""
+                       + (f" ({info['audience']})" if info["audience"] else "")
+                       + f", ít hơn {want} yêu cầu. Viết top {len(items)}, không thêm sản phẩm khác cho đủ số."
+                       if items else
+                       f"Web không có sản phẩm nào khớp \"{head_text}\". Không thêm sản phẩm khác cho đủ số; "
+                       "hỏi người viết đổi chủ đề hoặc kiểm tra inventory.csv.")
+        if len(info["head"]) > 1:
+            for n in range(len(info["head"]) - 1, 0, -1):
+                sub = dict(info, head=info["head"][:n])
+                cnt = len({picker_key(r) for r in site.rows if r.get("type") == "product"
+                           and not row_eligible(r) and head_matches(r, sub)
+                           and not audience_conflict(r, info["audience"])})
+                if cnt and cnt > len(items):
+                    res["shorter"].append({"head": " ".join(sub["head"]), "count": cnt})
+            if res["shorter"] and not items:
+                res["note"] += " Cụm ngắn hơn có sản phẩm: " + "; ".join(
+                    f"\"{s['head']}\" ({s['count']})" for s in res["shorter"]) + "."
+    return res
+
+
+def render_products(res: dict) -> str:
+    lines = [f"## Sản phẩm cho bài \"{res['query']}\" ({res['site']})", "",
+             f"Cụm tên sản phẩm: {res['head'] or '(không rõ)'}. Cần {res['requested']}, "
+             f"web có {res['qualified']} sản phẩm khớp, liệt kê {res['returned']}.", ""]
+    if res["items"]:
+        lines += ["| # | Sản phẩm | Giá tham khảo | Tồn kho | Biến thể | URL |", "| --- | --- | --- | --- | --- | --- |"]
+        for i, it in enumerate(res["items"], 1):
+            stock = {"yes": "còn hàng", "no": "hết hàng"}.get(it["in_stock"], "chưa rõ")
+            lines.append(f"| {i} | {_cell(it['name'])} | {_cell(it['price'])} | {stock} | "
+                         f"{it['variants']} | {it['url']} |")
+    if res["note"]:
+        lines += ["", res["note"]]
+    if res["items"]:
+        lines += ["", "Cho người viết xem danh sách này trong một tin nhắn, cho họ đổi món nếu muốn, "
+                      "rồi chạy: python3 scripts/site_inventory.py details <URL>... để lấy thông số trước khi viết."]
+    return "\n".join(lines)
+
+
 #: Words that say what kind of post it is, not what it is about. Left out of
 #: the ranking query so "huong dan" does not pull every how-to page.
 INTENT_WORDS = DUP_FILLER | frozenset("chọn mua nên".split())
@@ -858,8 +1172,11 @@ CANDIDATE_REL_CUTOFF = 0.2
 
 def candidates(site: Site, topic: str, top: int = 25) -> dict:
     """Related inventory rows, mixed by type, plus duplicates of the topic."""
+    # numbers never rank anything: the 10 of "top 10" matched "No.10" in a product name
     words = [fold(o) for o in _WORD_RE.findall(normalize(topic))
-             if not is_stop(o) and o.lower() not in INTENT_WORDS and not (o == fold(o) and o in INTENT_PLAIN)]
+             if not is_stop(o) and o.lower() not in INTENT_WORDS and not (o == fold(o) and o in INTENT_PLAIN)
+             and not _NUM_RE.search(o)]
+    info = parse_query(topic)
     ranked = search(site.rows, " ".join(words) or topic, top=len(site.rows))
     if ranked:
         # strong match (a fifth of the best score), or at least two of the topic's
@@ -871,7 +1188,10 @@ def candidates(site: Site, topic: str, top: int = 25) -> dict:
         for r in ranked:
             doc = site.docs[site.index[norm_url(r["url"])]]
             shared = len(topic_words & set(doc))
-            if r["score"] >= floor or (shared >= 2 and r["score"] >= MIN_PARA_X * site.rare):
+            # a product that holds the topic's head noun is on topic whatever its score
+            # next to a post that matched more of the other words
+            on_head = r.get("type") == "product" and bool(info["head"]) and head_matches(r, info)
+            if r["score"] >= floor or on_head or (shared >= 2 and r["score"] >= MIN_PARA_X * site.rare):
                 keep.append(r)
         ranked = keep
     quotas = {"product": 5, "category": 3, "page": 2}
@@ -881,6 +1201,9 @@ def candidates(site: Site, topic: str, top: int = 25) -> dict:
     for r in ranked:
         t = r.get("type")
         if t not in quotas or row_eligible(r) or _unavailable(r):
+            continue
+        # a product must hold the head noun of the topic, or it is not about it
+        if t == "product" and info["head"] and (not head_matches(r, info) or audience_conflict(r, info["audience"])):
             continue
         vk = (t, _variant_key(r))
         if vk in seen_variants:
@@ -1020,6 +1343,10 @@ def build_policy(draft: Draft, site: Site, found: list) -> Policy:
     lo, hi, target = density_band(draft.words)
     pol = Policy(draft.canonical, draft.slug, draft.buying_guide, lo, hi, target,
                  draft.intro_block, draft.intro_end)
+    pol.listed = frozenset(norm_url(u) for u in draft.products)
+    pol.listed_variants = frozenset(
+        _variant_key(site.by_url[k]) for k in pol.listed
+        if k in site.by_url and site.by_url[k].get("type") == "product")
     pol.seed(found)
     return pol
 
@@ -1073,7 +1400,7 @@ def suggest(draft: Draft, site: Site, target: Optional[int] = None) -> dict:
                       "title": c.row.get("title", ""), "anchor_type": c.anchor_type,
                       "score": c.score, "context": ctx})
     ph = []
-    used = set(pol.urls)
+    used = set(pol.urls) | set(pol.listed)
     for p in placeholders(draft.blocks):
         entry = dict(p)
         entry["proposal"] = None
@@ -1095,8 +1422,11 @@ def suggest(draft: Draft, site: Site, target: Optional[int] = None) -> dict:
     return {"draft": str(draft.path), "site": site.name, "word_count": draft.words,
             "buying_guide": draft.buying_guide,
             "density": {"min": pol.lo, "max": pol.hi, "target": goal},
-            "existing": {"count": len(found), "products": sum(f.kind == "product" for f in found),
-                         "urls": [f.url for f in found]},
+            "existing": {"count": len([f for f in found if norm_url(f.url) not in pol.listed]),
+                         "products": sum(f.kind == "product" for f in found if norm_url(f.url) not in pol.listed),
+                         "urls": [f.url for f in found],
+                         **({"listed_products": len([f for f in found if norm_url(f.url) in pol.listed])}
+                            if pol.listed else {})},
             "links": links, "placeholders": ph,
             "total_after": total_after, "skipped": dict(skipped), "warnings": warnings}
 
@@ -1106,7 +1436,9 @@ def render_suggest(plan: dict) -> str:
     lines = [f"## Gợi ý liên kết nội bộ ({plan['site']})", "",
              f"Bài {plan['word_count']} từ, mức {d['min']} đến {d['max']} liên kết, mục tiêu {d['target']}. "
              f"Đã có {plan['existing']['count']}, sau khi chèn: {plan['total_after']}."
-             + (" Bài hướng dẫn mua hàng: không giới hạn tỉ lệ sản phẩm." if plan["buying_guide"] else ""), ""]
+             + (" Bài hướng dẫn mua hàng: không giới hạn tỉ lệ sản phẩm." if plan["buying_guide"] else "")
+             + (f" Không tính {plan['existing']['listed_products']} liên kết tới sản phẩm trong danh sách top."
+                if plan["existing"].get("listed_products") else ""), ""]
     if plan["links"]:
         lines += ["| Đoạn | Dòng | Neo | Trang đích | Loại | Kiểu neo | Điểm |",
                   "| --- | --- | --- | --- | --- | --- | --- |"]
@@ -1207,7 +1539,8 @@ def _reparse(text: str, path: Path) -> Draft:
                  words=body_word_count(blocks), canonical=fm.get("canonical", ""),
                  slug=fm.get("slug", ""), buying_guide=is_buying_guide(fm),
                  intro_block=intro.index if intro else None,
-                 intro_end=first_sentence_end(intro.text) if intro else 0)
+                 intro_end=first_sentence_end(intro.text) if intro else 0,
+                 products=listed_products(text, fm))
 
 
 def _atype_for(row: dict, anchor: str, site: Site) -> str:
@@ -1441,17 +1774,80 @@ def check_internal_links(site: Site, md_text: str, html_links: list, canonical: 
                               "Đổi sang trang còn sống.")
         elif row_eligible(row):
             warnings.append(f"Liên kết tới trang đã đánh dấu exclude trong inventory.csv: {url}")
+    if is_roundup(fm):
+        v, w = check_roundup(site, fm, md_text, urls, canonical)
+        violations += v
+        warnings += w
     return {"violations": violations, "warnings": warnings, "internal_urls": urls,
             "placeholders": sorted(seen_ph)}
 
 
-def link_summary(body_md: str, fm: dict, site: Site, words: Optional[int] = None) -> dict:
-    """Numbers the draft rubric scores when a site is configured."""
+_TOP_N_RE = re.compile(r"\btop\s*(\d+)\b", re.I)
+
+
+def check_roundup(site: Site, fm: dict, md_text: str, linked_urls: list, canonical: str = "") -> tuple:
+    """Gate 5 checks for ``content_type: roundup`` (and only then): every product in
+    ``products:`` is in the inventory and not gone, is linked in the body, an
+    out-of-stock one is a warning, and "top N" in the title equals the number of
+    products. Returns (violations, warnings), Vietnamese."""
+    violations: list = []
+    warnings: list = []
+    products = frontmatter_list(normalize(md_text), "products")
+    if not products:
+        violations.append(
+            "Bài roundup chưa khai báo danh sách sản phẩm. Thêm khóa products: vào phần đầu bài, mỗi dòng một URL "
+            "sản phẩm có trong danh sách của web (chạy: python3 scripts/internal_links.py products --query \"...\").")
+        return violations, warnings
+    linked = {norm_url(u) for u in linked_urls}
+    seen: set = set()
+    for url in products:
+        key = norm_url(url)
+        if key in seen:
+            violations.append(f"Sản phẩm xuất hiện hai lần trong products: {url}")
+            continue
+        seen.add(key)
+        row = site.by_url.get(key)
+        # a product that is also linked in the body was already reported by the link loop
+        if row is None and key in linked:
+            continue
+        if row is not None and row.get("type") == "gone" and key in linked:
+            continue
+        if row is None:
+            violations.append(
+                f"Sản phẩm trong products: không có trong danh sách của web {site.name}: {url}. "
+                f"Nếu sản phẩm có thật, thêm bằng: python3 scripts/site_inventory.py add {url} --site {site.name} ; "
+                "nếu không, thay bằng sản phẩm có thật (python3 scripts/internal_links.py products).")
+            continue
+        if row.get("type") == "gone":
+            violations.append(f"Sản phẩm trong products: đã gỡ khỏi web (type=gone): {url}. Thay bằng sản phẩm còn bán.")
+            continue
+        if row.get("type") != "product":
+            violations.append(f"Địa chỉ trong products: không phải trang sản phẩm ({row.get('type')}): {url}")
+            continue
+        if key not in linked:
+            violations.append(f"Sản phẩm có trong products: nhưng thân bài không liên kết tới nó: {url}. "
+                              "Mỗi sản phẩm trong top phải có một liên kết thật tới trang của nó.")
+        if _unavailable(row):
+            warnings.append(f"Sản phẩm đang hết hàng trên web: {url}. Cân nhắc thay bằng sản phẩm còn hàng.")
+    m = _TOP_N_RE.search(fm.get("title", ""))
+    if m and int(m.group(1)) != len(products):
+        violations.append(f"Tiêu đề nói top {m.group(1)} nhưng products: có {len(products)} sản phẩm. "
+                          "Sửa tiêu đề hoặc danh sách cho khớp.")
+    return violations, warnings
+
+
+def link_summary(body_md: str, fm: dict, site: Site, words: Optional[int] = None,
+                 raw_md: str = "") -> dict:
+    """Numbers the draft rubric scores when a site is configured. In a roundup
+    (``raw_md`` carries its frontmatter) the listed products are not counted."""
     text = normalize(body_md)
     blocks = parse_blocks(text, 0)
     found = existing_links(blocks, site)
     canonical = fm.get("canonical", "")
     found = [f for f in found if not is_self(f.url, canonical)]
+    listed = {norm_url(u) for u in listed_products(normalize(raw_md), fm)} if raw_md else set()
+    if listed:
+        found = [f for f in found if norm_url(f.url) not in listed]
     w = words if words is not None else body_word_count(blocks)
     lo, hi, target = density_band(w)
     urls = [norm_url(f.url) for f in found]
@@ -1483,6 +1879,17 @@ def cmd_candidates(args) -> int:
         _print_json(res)
     else:
         print(render_candidates(res))
+    return 0
+
+
+def cmd_products(args) -> int:
+    site = pick_site(args.site)
+    res = pick_products(site, args.query, top=args.top, in_stock=args.in_stock,
+                        price_min=args.price_min, price_max=args.price_max)
+    if args.json:
+        _print_json(res)
+    else:
+        print(render_products(res))
     return 0
 
 
@@ -1544,6 +1951,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--site")
     s.add_argument("--top", type=int, default=25)
     s.add_argument("--json", action="store_true")
+    s = sub.add_parser("products", help="Chọn sản phẩm thật cho bài top N (không đệm sản phẩm không liên quan)")
+    s.add_argument("--query", required=True, help='Ví dụ "balo nam" hoặc "top 5 balo nam"')
+    s.add_argument("--site")
+    s.add_argument("--top", type=int, help="Số sản phẩm cần (mặc định: số trong câu, hoặc 5)")
+    s.add_argument("--in-stock", dest="in_stock", action="store_true")
+    s.add_argument("--price-min", dest="price_min", type=float)
+    s.add_argument("--price-max", dest="price_max", type=float)
+    s.add_argument("--json", action="store_true")
     s = sub.add_parser("suggest", help="Gợi ý liên kết cho từng đoạn của bài")
     s.add_argument("--draft", required=True)
     s.add_argument("--site")
@@ -1566,7 +1981,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[list] = None) -> int:
     args = build_parser().parse_args(argv)
-    handlers = {"candidates": cmd_candidates, "suggest": cmd_suggest,
+    handlers = {"candidates": cmd_candidates, "products": cmd_products, "suggest": cmd_suggest,
                 "apply": cmd_apply, "reverse": cmd_reverse}
     try:
         return handlers[args.cmd](args)

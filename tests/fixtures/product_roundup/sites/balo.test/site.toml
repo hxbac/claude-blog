@@ -1,0 +1,8 @@
+base_url = "https://balo.test"
+cms = "shopify"
+brand = "Balo Shop"
+lang = "vi"
+canonical_pattern = "https://balo.test/blogs/{slug}"
+sitemaps = []
+include = []
+exclude = []

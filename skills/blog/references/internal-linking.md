@@ -65,6 +65,7 @@ site's `inventory.csv`:
 | Products | At most 40% of the internal links, except in a buying guide. A buying guide has `content_type`, `type` or `template` set to `buying-guide`, `product-review`, `comparison` or `roundup`, or a title such as "cách chọn", "hướng dẫn mua", "kinh nghiệm mua", "tốt nhất", "top N", "review", "so sánh" |
 | Introduction | No product link in the first sentence of the first body paragraph |
 | Duplicates | Before drafting, `candidates` flags live posts whose title, h1 or focus keyword overlaps the topic (recall-weighted F-score of 0.7 or more on content words, `internal_links.dup_score`); the marketer decides between a new angle and `blog-rewrite` of the old URL |
+| Roundup | A post with `content_type: roundup` lists real products in frontmatter `products:` (URLs, in order). Links to those products are exempt from the density band and the product share, and `suggest` and `apply` never add another link to them (or to a colour variant). Other internal links follow the band as usual |
 | Reverse links | `reverse` lists older posts that should link to the new one with a suggested anchor and sentence; the marketer pastes them into the CMS. Nothing edits the live site |
 
 Gate 5 blocks an unresolved `[INTERNAL-LINK:` placeholder and any internal URL
@@ -72,6 +73,12 @@ that is not in the inventory, naming the URL and the
 `site_inventory.py add` command. `draft_rubric.py` scores the links (count
 against the band, product share, anchor mix) instead of listing them in the
 pre-publish checklist. A post with no configured site is not affected.
+
+For `content_type: roundup`, and only then, Gate 5 also requires: every
+`products:` URL is in the inventory and not `gone`; each one is linked in the
+body; the "top N" in the title equals the number of products. An out-of-stock
+product is a warning. `blog_render.py` adds an `ItemList` node (the product
+URLs and names) beside `BlogPosting` in the same JSON-LD block.
 
 ---
 

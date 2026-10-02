@@ -42,6 +42,7 @@ python3 scripts/site_inventory.py <subcommand> ...
 | "bài cũ nào trên web cần cập nhật" | `stale --top 20` |
 | "bài nào trên web trùng từ khoá với nhau" | `overlap` (xem `blog-cannibalization`, chế độ web) |
 | "thêm sản phẩm này vào danh sách: <url>" | `add <url> --type product --fetch` |
+| "lấy thông số của mấy sản phẩm này" (trước khi viết bài top N) | `details <url> <url> ...` (chỉ đúng các URL đã chọn, tối đa 30). Chọn sản phẩm bằng `internal_links.py products --query "balo nam"` |
 | "tôi có file danh sách URL từ CMS" | `import-csv <file>` (needs `url`, ideally `title`) |
 | "đang có những web nào" / "web có bao nhiêu bài" | `list-sites` / `status` |
 
@@ -57,7 +58,10 @@ ask one short question: which site.
    `https://example.vn/blog/{slug}`) by editing `site.toml`; new posts take
    their `canonical:` from that pattern.
 2. **refresh.** A full refresh of a few thousand URLs takes minutes because it
-   waits 0.5 s between requests and caps at 2,000 pages. The first run on a new
+   waits 0.5 s between requests and caps at 2,000 pages. Products have their own
+   cap, `product_cap` in `site.toml` (default 2,000); Shopify and Haravan are read
+   100 products per page, and a page that fails to download is reported in the
+   notes instead of ending the list quietly. The first run on a new
    site should use `--limit 50` to confirm the result looks right, then run
    it without a limit. A limited run never marks anything as gone.
 3. **Planning commands.** All read `inventory.csv` only, no network, no paid API.

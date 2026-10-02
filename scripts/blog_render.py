@@ -297,8 +297,8 @@ def _parse_frontmatter(raw: str) -> tuple[dict, str]:
     for line in fm_text.split("\n"):
         if not line.strip() or line.lstrip().startswith("#"):
             continue
-        if line.startswith("  - ") and current_list_key:
-            fm.setdefault(current_list_key, []).append(line[4:].strip().strip('"').strip("'"))
+        if line.lstrip().startswith("- ") and current_list_key:
+            fm.setdefault(current_list_key, []).append(line.lstrip()[2:].strip().strip('"').strip("'"))
             continue
         if ":" in line:
             key, _, value = line.partition(":")
@@ -462,7 +462,41 @@ def _author_box(fm: dict) -> tuple[str, str]:
     return f'<p class="author-box">{" ".join(parts_html)}</p>\n', " ".join(parts_text)
 
 
-def _build_json_ld(fm: dict, word_count: int, og_image_url: str) -> str:
+_MD_LINK = re.compile(r"(?<!!)\[([^\]]+)\]\(\s*<?([^)\s>]+)")
+
+
+def _roundup_items(fm: dict, body: str) -> list:
+    """(url, name) of each product a roundup lists, in order. The name is the
+    product's name in the site inventory when the post's canonical host is a
+    configured site, else the anchor text of the first link to it in the body."""
+    urls = fm.get("products")
+    if not isinstance(urls, list):
+        return []
+    rows = {}
+    try:
+        import internal_links
+        site_dir = internal_links.site_for_canonical(str(fm.get("canonical", "")))
+        if site_dir is not None:
+            site = internal_links.load_site(site_dir)
+            rows = {internal_links.norm_url(u): internal_links.display_name(site.by_url[internal_links.norm_url(u)])
+                    for u in urls if internal_links.norm_url(u) in site.by_url}
+            norm = internal_links.norm_url
+        else:
+            norm = lambda u: u.rstrip("/")  # noqa: E731
+    except Exception:
+        norm = lambda u: u.rstrip("/")  # noqa: E731
+    anchors = {}
+    for text, href in _MD_LINK.findall(body or ""):
+        anchors.setdefault(norm(href), text.strip())
+    out = []
+    for u in urls:
+        if not _is_safe_url(u):
+            continue
+        out.append((u, rows.get(norm(u)) or anchors.get(norm(u)) or u))
+    return out
+
+
+def _build_json_ld(fm: dict, word_count: int, og_image_url: str, body: str = "") -> str:
     data = {
         "@context": "https://schema.org",
         "@type": "BlogPosting",
@@ -482,6 +516,17 @@ def _build_json_ld(fm: dict, word_count: int, og_image_url: str) -> str:
         data["reviewedBy"] = {"@type": "Person", "name": fm["reviewed_by"]}
     if fm.get("canonical"):
         data["mainEntityOfPage"] = {"@type": "WebPage", "@id": fm["canonical"]}
+    if str(fm.get("content_type", "")).strip().lower() == "roundup":
+        items = _roundup_items(fm, body)
+        if items:
+            # one script block, two nodes: Gate 5 joins every ld+json block before parsing
+            data = {"@context": "https://schema.org", "@graph": [
+                {k: v for k, v in data.items() if k != "@context"},
+                {"@type": "ItemList", "name": fm.get("title", ""), "numberOfItems": len(items),
+                 "itemListOrder": "https://schema.org/ItemListOrderAscending",
+                 "itemListElement": [{"@type": "ListItem", "position": i, "url": u, "name": n}
+                                     for i, (u, n) in enumerate(items, 1)]},
+            ]}
     # HTML-safe JSON encoding: escape "</" as "<\/" so an attacker who controls
     # a frontmatter value (e.g. title) cannot inject a literal "</script>" that
     # would break out of the surrounding <script type="application/ld+json">
@@ -643,7 +688,7 @@ def _render_html(md_path: Path, out_dir: Path, hero_filename: str) -> Path:
         body_html=body_html,
         author_box=author_box_html,
         site_url_or_dash=_safe_attr(site_url or "#"),
-        json_ld=_build_json_ld(fm, word_count, og_image),
+        json_ld=_build_json_ld(fm, word_count, og_image, body),
         css=CSS,
     )
 
