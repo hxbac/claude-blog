@@ -422,13 +422,18 @@ HISTORY_LOOKBACK_DAYS = 500
 LOW_DATA_TOTAL = 30
 
 
-def short_history_message(first_data_date: str | None, *, period_days: int = SHORT_HISTORY_DAYS) -> str:
+def short_history_message(first_data_date: str | None, *, period_days: int = SHORT_HISTORY_DAYS,
+                          today: date | None = None) -> str:
     """Vietnamese explanation for "the previous period has no rows"."""
     if first_data_date:
         try:
-            ready = (date.fromisoformat(first_data_date) + timedelta(days=2 * period_days)).isoformat()
-            tail = (f" Khi Search Console có đủ {2 * period_days} ngày dữ liệu (khoảng {ready}) thì so sánh "
-                    f"{period_days} ngày với {period_days} ngày liền trước sẽ chạy được.")
+            ready_on = date.fromisoformat(first_data_date) + timedelta(days=2 * period_days)
+            if ready_on > (today or date.today()):
+                tail = (f" Khi Search Console có đủ {2 * period_days} ngày dữ liệu (khoảng {ready_on.isoformat()}) "
+                        f"thì so sánh {period_days} ngày với {period_days} ngày liền trước sẽ chạy được.")
+            else:
+                tail = (f" Dữ liệu đã đủ {2 * period_days} ngày nhưng kỳ trước vẫn không có lượt hiển thị nào "
+                        "cho các trang này, nên vẫn chưa có gì để so sánh.")
         except ValueError:
             tail = ""
         since = f"Search Console chỉ có dữ liệu của web này từ ngày {first_data_date}"

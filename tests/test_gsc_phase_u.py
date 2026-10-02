@@ -477,8 +477,10 @@ def test_a_row_without_gsc_query_gets_no_gsc_form(env):
 # ---- content_decay: short history -------------------------------------------------------
 
 def test_short_history_message_names_the_first_date_and_the_ready_date():
-    msg = cd.short_history_message("2026-08-05")
+    msg = cd.short_history_message("2026-08-05", today=date(2026, 8, 20))
     assert "từ ngày 2026-08-05" in msg and "2026-09-30" in msg and "56 ngày" in msg
+    late = cd.short_history_message("2026-08-05", today=date(2026, 10, 2))
+    assert "2026-09-30" not in late and "vẫn không có lượt hiển thị" in late
     assert "error" not in msg.lower()
     assert "chưa có dữ liệu cho kỳ trước" in cd.short_history_message(None)
 
