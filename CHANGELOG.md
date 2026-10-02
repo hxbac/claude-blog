@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `blog-google` builds its `.venv` with uv when it is installed (packages
+  hardlinked from uv's shared cache) and falls back to venv plus pip when uv is
+  absent, fails, or `AI_CONTENT_NO_UV=1` is set.
+
 ### Added
 
 - Search Console in the writing pipeline (Phase U): `site_inventory.py gsc-sync`

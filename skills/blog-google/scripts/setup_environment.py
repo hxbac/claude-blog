@@ -10,7 +10,28 @@ import subprocess
 import venv
 import hashlib
 import json
+import shutil
 from pathlib import Path
+
+
+def find_uv():
+    """Path of uv, or None. AI_CONTENT_NO_UV=1 forces the pip path; then $UV, PATH,
+    then the folders the official uv installers use (not on PATH until a new shell).
+    With uv, packages come from one shared cache by hardlink, so this venv costs
+    little disk next to the hub's other venvs."""
+    if os.environ.get("AI_CONTENT_NO_UV", "").strip().lower() in ("1", "true", "yes"):
+        return None
+    configured = os.environ.get("UV")
+    if configured and Path(configured).is_file():
+        return configured
+    found = shutil.which("uv")
+    if found:
+        return found
+    exe = "uv.exe" if os.name == "nt" else "uv"
+    for folder in (Path.home() / ".local" / "bin", Path.home() / ".cargo" / "bin"):
+        if (folder / exe).is_file():
+            return str(folder / exe)
+    return None
 
 
 class SkillEnvironment:
@@ -38,13 +59,24 @@ class SkillEnvironment:
         if self.is_in_skill_venv():
             return True
 
+        uv = find_uv()
         if not self.venv_dir.exists():
             print(f"Creating virtual environment in {self.venv_dir.name}/")
-            try:
-                venv.create(self.venv_dir, with_pip=True)
-            except Exception as e:
-                print(f"Failed to create venv: {e}")
-                return False
+            if uv:
+                made = subprocess.run(
+                    [uv, "venv", "--quiet", "--seed", "--python", sys.executable, str(self.venv_dir)],
+                    capture_output=True, text=True,
+                )
+                if made.returncode != 0:
+                    print("uv could not create the venv, falling back to pip")
+                    shutil.rmtree(self.venv_dir, ignore_errors=True)
+                    uv = None
+            if not uv:
+                try:
+                    venv.create(self.venv_dir, with_pip=True)
+                except Exception as e:
+                    print(f"Failed to create venv: {e}")
+                    return False
 
         # Use lock file when available (hash-verified, reproducible).
         # Fall back to requirements.txt only if no lock present.
@@ -59,11 +91,19 @@ class SkillEnvironment:
             return True
 
         print(f"Installing dependencies from {install_label}...")
+        commands = []
+        if uv:
+            commands.append([uv, "pip", install_args[0], "--quiet", "--python", str(self.venv_python)] + install_args[1:])
+        commands.append([str(self.venv_pip)] + install_args)  # pip: the fallback, or the only path
         try:
-            subprocess.run(
-                [str(self.venv_pip)] + install_args,
-                check=True, capture_output=True, text=True,
-            )
+            for index, command in enumerate(commands):
+                try:
+                    subprocess.run(command, check=True, capture_output=True, text=True)
+                    break
+                except subprocess.CalledProcessError:
+                    if index == len(commands) - 1:
+                        raise
+                    print("uv could not install the dependencies, falling back to pip")
             self.write_dependency_stamp()
             print("Dependencies installed")
             return True
