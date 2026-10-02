@@ -242,7 +242,10 @@ Standard execution order for `/blog write`:
 3. **Outline**: Build section structure from template + research gaps
 4. **Write**: Dispatch the `blog-writer` role with research packet and outline
 5. **Optimize**: Dispatch the `blog-seo` role for on-page validation
-6. **Score**: Dispatch the `blog-reviewer` role for 100-point quality audit
+6. **Score**: Dispatch the `blog-reviewer` role for 100-point quality audit. Before dispatch, run `blog_preflight.py --init-review-nonce --draft "<folder>"` and pass the nonce in the prompt. It records the sha256 of the draft markdown with the nonce. The reviewer is read-only, so you save its output to `<folder>/review.md`:
+   - Save it **verbatim**. Never edit `review.md` by hand: no sed, no appended "Applied after review" notes.
+   - If the output lacks the contract lines (`### Overall Score: N/100 - Rating` first, `Nonce:`, final `BLOCKING:`), re-dispatch the reviewer. Do not reformat its output to fit the parser.
+   - If the draft changes after the review (any fix, however small), Gate 4 blocks. Re-init the nonce and re-run the reviewer. That re-run counts toward the max 3 iterations.
 6.5. **Delivery Contract Enforcement (v1.9.0)**: Run the 5-gate preflight per `skills/blog/references/blog-delivery-contract.md`. Resolve helper scripts from a trusted absolute install path such as `$HOME/.claude/scripts` or an operator-pinned absolute `CLAUDE_BLOG_SCRIPTS_DIR`; never from the current working directory:
    ```bash
    BLOG_SCRIPT_DIR="${CLAUDE_BLOG_SCRIPTS_DIR:-$HOME/.claude/scripts}"

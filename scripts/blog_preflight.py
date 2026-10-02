@@ -216,21 +216,41 @@ def _read_expected_review_nonce(draft: Path) -> tuple[str | None, str | None]:
     return nonce, None
 
 
+def _draft_markdown_sha256(draft: Path) -> str | None:
+    """sha256 of the draft markdown, or None when there is no single source .md."""
+    path, _note = _draft_markdown(draft)
+    if path is None:
+        return None
+    try:
+        return hashlib.sha256(_read_bytes_no_follow(path)).hexdigest()
+    except (OSError, ValueError):
+        return None
+
+
+def _read_review_state_hash(draft: Path) -> str | None:
+    """The markdown hash recorded when the nonce was issued (None for old state)."""
+    try:
+        data = json.loads(_review_state_path(draft).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    value = str(data.get("draft_md_sha256", "")).strip().lower()
+    return value if re.fullmatch(r"[0-9a-f]{64}", value) else None
+
+
 def _init_review_nonce(draft: Path) -> str:
     """Generate a CSPRNG nonce and store verifier state outside the draft."""
     import secrets
     nonce = secrets.token_hex(16)
-    _atomic_write_json(
-        _review_state_path(draft),
-        {
-            "draft": str(draft.resolve()),
-            "nonce": nonce,
-            "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-            "version": CONTRACT_VERSION,
-        },
-        private=True,
-        sort_keys=True,
-    )
+    state = {
+        "draft": str(draft.resolve()),
+        "nonce": nonce,
+        "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "version": CONTRACT_VERSION,
+    }
+    md_hash = _draft_markdown_sha256(draft)
+    if md_hash:
+        state["draft_md_sha256"] = md_hash
+    _atomic_write_json(_review_state_path(draft), state, private=True, sort_keys=True)
     return nonce
 
 
@@ -382,6 +402,43 @@ def _safe_local_path(root: Path, ref: str) -> tuple[Path | None, str | None]:
     return resolved, None
 
 
+_RESERVED_TLDS = {"example", "test", "invalid", "localhost"}
+
+
+def _is_reserved_host(host: str) -> bool:
+    """RFC 2606 / RFC 6761 reserved names: placeholders that never resolve."""
+    host = (host or "").lower().rstrip(".")
+    if not host:
+        return False
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    labels = host.split(".")
+    if labels[-1] in _RESERVED_TLDS:
+        return True
+    # example.com / example.net / example.org and example.<anytld>, plus subdomains
+    if len(labels) >= 2 and labels[-2] == "example":
+        return True
+    return False
+
+
+def _is_placeholder_url(url: str) -> bool:
+    try:
+        host = urllib.parse.urlparse(url or "").hostname or ""
+    except ValueError:
+        return False
+    if not _is_reserved_host(host):
+        return False
+    # A reserved host that the marketer configured under sites/ is a real
+    # (or deliberately fake test) client site, not a forgotten placeholder.
+    try:
+        import internal_links
+        if internal_links.site_for_canonical(url) is not None:
+            return False
+    except ImportError:
+        pass
+    return True
+
+
 def _load_unreachable_allowlist(draft_dir: Path) -> set[str]:
     """Load exact host allowlist for links that should not be probed."""
     hosts = set(URL_ALLOWLIST)
@@ -398,14 +455,36 @@ def _load_unreachable_allowlist(draft_dir: Path) -> set[str]:
             parsed = urllib.parse.urlparse(str(host))
             name = (parsed.hostname or str(host)).strip().lower().rstrip(".")
             if re.fullmatch(r"[a-z0-9.-]+", name):
+                if _is_reserved_host(name):
+                    continue  # reserved hosts never need (or get) an allowlist entry
                 hosts.add(name)
     return hosts
+
+
+def _ignored_reserved_allowlist_hosts(draft_dir: Path) -> list[str]:
+    """Reserved hosts named in the draft's allowlist file (ignored by Gate 5)."""
+    cfg_path = draft_dir / URL_ALLOWLIST_FILE
+    if not cfg_path.is_file() or cfg_path.is_symlink():
+        return []
+    try:
+        data = json.loads(_read_text_no_follow(cfg_path))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return []
+    raw = data.get("unreachable_hosts") or data.get("hosts") or []
+    out = []
+    if isinstance(raw, list):
+        for host in raw:
+            parsed = urllib.parse.urlparse(str(host))
+            name = (parsed.hostname or str(host)).strip().lower().rstrip(".")
+            if re.fullmatch(r"[a-z0-9.-]+", name) and _is_reserved_host(name):
+                out.append(name)
+    return out
 
 
 def _is_allowed_unreachable(url: str, allowed_hosts: set[str]) -> bool:
     parsed = urllib.parse.urlparse(url)
     host = (parsed.hostname or "").lower().rstrip(".")
-    return host in allowed_hosts
+    return host in allowed_hosts or _is_reserved_host(host)
 
 
 def _resolve_public_http_url(url: str) -> tuple[bool, str | None, str | None, int | None, list[Any]]:
@@ -1253,6 +1332,16 @@ def gate_5_asset_link_integrity(
         ok, reason = _well_formed_http_url(parser.canonical)
         if not ok:
             violations.append(f"canonical URL invalid or unsafe: {parser.canonical} ({reason})")
+        elif _is_placeholder_url(parser.canonical):
+            warnings.append(
+                "canonical đang là địa chỉ tạm, thay bằng URL thật trước khi đăng "
+                f"({parser.canonical})"
+            )
+    for ignored in _ignored_reserved_allowlist_hosts(draft_dir):
+        warnings.append(
+            f"info: {URL_ALLOWLIST_FILE} nêu host dành riêng {ignored}; "
+            "không cần và bị bỏ qua (host dành riêng theo RFC 2606/6761)"
+        )
 
     # External links: explicit http/https allowlist. Other schemes (file://,
     # gopher://, ftp://, javascript:) are flagged as violations rather than
@@ -1489,6 +1578,29 @@ def gate_4_content_review(draft_dir: Path) -> dict:
             ["review.md Nonce does not match external verifier state; provenance check failed"],
         )
 
+    hash_warnings: list[str] = []
+    recorded_hash = _read_review_state_hash(draft_dir)
+    if recorded_hash is None:
+        hash_warnings.append(
+            "Trạng thái xác minh không có mã băm của bài (nonce cấp bằng bản cũ); "
+            "không kiểm tra được bài có đổi sau khi review hay không."
+        )
+    else:
+        current_hash = _draft_markdown_sha256(draft_dir)
+        if current_hash is None:
+            hash_warnings.append(
+                "Không xác định được file .md của bài để so mã băm với lúc cấp nonce."
+            )
+        elif current_hash != recorded_hash:
+            return _gate_result(
+                4, "Content Review", False,
+                [
+                    "Bài đã bị sửa sau khi review: nội dung .md khác với lúc cấp nonce. "
+                    "Cấp nonce mới (--init-review-nonce) và chạy lại blog-reviewer."
+                ],
+                warnings=hash_warnings,
+            )
+
     non_empty = [line.strip() for line in text.splitlines() if line.strip()]
     if not non_empty:
         return _gate_result(4, "Content Review", False, ["review.md is empty"])
@@ -1531,6 +1643,7 @@ def gate_4_content_review(draft_dir: Path) -> dict:
 
     draft_check = draft_score_check(draft_dir)
     metric_violations.extend(draft_check["violations"])
+    draft_check["warnings"] = hash_warnings + list(draft_check["warnings"])
 
     if metric_violations:
         return _gate_result(

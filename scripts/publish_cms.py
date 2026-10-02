@@ -641,6 +641,12 @@ def run(args: argparse.Namespace, out=print) -> int:
         out(f"Không đọc được bài: {exc}")
         return 1
 
+    import blog_preflight
+    if post.canonical and blog_preflight._is_placeholder_url(post.canonical):
+        out(f"Bài CHƯA được gửi đi: canonical đang là địa chỉ tạm ({post.canonical}). "
+            "Thay bằng URL thật của website rồi nhờ tôi đăng lại.")
+        return 2
+
     violations, warnings, mode = preflight(draft, md_path, post)
     for w in warnings:
         out(f"Lưu ý: {w}")

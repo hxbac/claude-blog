@@ -159,7 +159,7 @@ description: Hướng dẫn chọn máy pha cà phê theo diện tích bếp và
 date: 2026-09-01
 author: Nguyễn Hiền
 lang: vi
-canonical: https://example.vn/cach-chon-may-pha-ca-phe
+canonical: https://cafe-nha-minh.vn/cach-chon-may-pha-ca-phe
 tags: [may pha ca phe, gian bep nho]
 category: Gia dụng
 %(extra)s---

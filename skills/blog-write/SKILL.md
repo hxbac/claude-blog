@@ -70,7 +70,11 @@ For a deeper surface-by-surface workflow, see
    question, in Vietnamese, before researching: write a new angle that differs
    from that post, or rewrite the old post at that URL (`blog-rewrite`)? Do not
    draft until they answer. Set `canonical:` from `canonical_pattern` in
-   `site.toml`. With no site configured, skip this step.
+   `site.toml`. With no site configured, skip this step and use a placeholder
+   canonical such as `https://example.vn/<slug>`. Gate 5 only warns about it,
+   and `publish_cms.py` refuses to publish it. Tell the marketer in the final
+   summary that the canonical is temporary and must be replaced with the real
+   URL. Never create or copy `preflight-allowlist.json` to make a gate pass.
 
    **Roundup requests** ("top N", "review", "so sánh", "nên mua" for a product
    type) on a configured site: after `candidates`, run
@@ -570,6 +574,7 @@ Before delivering, verify:
 
 ### Phase 6.5: Delivery Contract Enforcement (v1.9.0)
 Before Phase 7, run the 5-gate delivery contract (via `python3 scripts/blog_preflight.py` plus a BLOCKING `blog-reviewer` agent) per `skills/blog/references/blog-delivery-contract.md` and the writer-specific checklist in `skills/blog-write/references/delivery.md`. Use `python3` for local scripts. The user is never the first reviewer; the gates are.
+Run `blog_preflight.py --init-review-nonce --draft "<folder>"` before dispatching `blog-reviewer`, and save the reviewer's output to `<folder>/review.md` verbatim. Never edit `review.md` by hand. If the output lacks the contract lines (`### Overall Score: N/100 - Rating` first, `Nonce:`, final `BLOCKING:`), re-dispatch the reviewer instead of reformatting. If the draft changes after the review, re-init the nonce and re-run the reviewer; that counts toward the max 3 iterations below.
 On any block, capture `<folder>/preflight-report.json`, re-dispatch the blog-writer agent with the diagnostic as input, and re-run the gated steps. Maximum 3 iterations. On the 3rd failure, stop and present the failure diagnostic instead of the draft.
 
 ### Phase 7: Delivery
