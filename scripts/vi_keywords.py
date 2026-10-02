@@ -63,7 +63,8 @@ REGIONAL_GROUPS: tuple[tuple[str, ...], ...] = (
     ("ô tô", "xe hơi"),
     ("điều hòa", "máy lạnh"),
     ("xà phòng", "xà bông"),
-    ("túi", "bịch"),
+    # Not ("túi", "bịch"): in the South "bịch" is a plastic or snack bag, never a
+    # handbag or backpack, so the swap produced "bịch đeo chéo" for shop data.
     ("kính", "kiếng"),
     ("dù", "ô"),
 )

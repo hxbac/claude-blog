@@ -1653,10 +1653,51 @@ def find_gaps(rows: list, *, top: int = 10, threshold: float = COVERAGE_THRESHOL
             "products_in_category": product_cats.get(_key_name(name), 0) if kind == "category" else 0,
             "best_coverage": round(best, 2), "closest_post": best_url if best > 0 else "",
         })
+    targets = fold_subcategories(targets)
     targets.sort(key=lambda t: (-t["priority"], -t["products_in_category"],
                                 0 if t["type"] == "category" else 1, t["best_coverage"], t["name"].lower()))
     return {"posts_considered": len(posts), "threshold": threshold,
             "total_gaps": len(targets), "gaps": targets[: max(0, top)]}
+
+
+def fold_subcategories(targets: list) -> list:
+    """Fold a category gap whose name starts with another category gap's name
+    ("Balo Camping" under "Balo") into that parent, so one broad topic does
+    not crowd the list with its siblings. The parent keeps the children's
+    names in ``subcategories`` and their product counts in its own count."""
+    cats = [t for t in targets if t["type"] == "category"]
+    keys = {id(t): _key_name(t["name"]) for t in cats}
+    parent_of = {}
+    for t in cats:
+        best = None
+        for other in cats:
+            if other is t:
+                continue
+            k, ko = keys[id(t)], keys[id(other)]
+            if ko and k != ko and k.startswith(ko + " ") and (best is None or len(ko) > len(keys[id(best)])):
+                best = other
+        if best is not None:
+            parent_of[id(t)] = best
+    def root(t):
+        while id(t) in parent_of:
+            t = parent_of[id(t)]
+        return t
+    out = []
+    for t in targets:
+        if id(t) in parent_of:
+            r = root(t)
+            r.setdefault("subcategories", []).append(t["name"])
+            r["products_in_category"] = r.get("products_in_category", 0) + t.get("products_in_category", 0)
+            continue
+        out.append(t)
+    return out
+
+
+def _noun_variants(variants: list, seed: str) -> list:
+    """A product or category name is a noun, so the bare "cách <noun>" intent
+    variant is ungrammatical; the search people make is "cách chọn <noun>"."""
+    bad = f"cách {seed}"
+    return [f"cách chọn {seed}" if v == bad else v for v in variants]
 
 
 def _key_name(text: str) -> str:
@@ -1683,9 +1724,12 @@ def suggest_topics(gap_result: dict, *, volumes: bool = False, variants_per_row:
     gaps = []
     for g in gap_result["gaps"]:
         g = dict(g)
-        seed = " ".join(g["name"].lower().split()[:6])
+        # "Dây Nịt Nam (Thắt Lưng)": nobody searches the brackets, so seed
+        # with the name outside them.
+        seed = " ".join(re.sub(r"\([^)]*\)", " ", g["name"]).lower().split()[:6]) or g["name"].lower()
         g["topic"] = _topic_for(g)
-        g["variants"] = [v["keyword"] for v in vi_keywords.build_variants(seed)][:variants_per_row]
+        g["variants"] = _noun_variants([v["keyword"] for v in vi_keywords.build_variants(seed)],
+                                       seed)[:variants_per_row]
         gaps.append(g)
     if volumes:
         kws = list(dict.fromkeys(k for g in gaps for k in g["variants"]))
@@ -1721,6 +1765,8 @@ def render_gaps(result: dict) -> str:
         vols = g.get("volumes") or {}
         kws = "; ".join(f"{k} ({vols[k]})" if vols.get(k) is not None else k for k in g["variants"])
         extra = f" ({g['products_in_category']} sản phẩm)" if g.get("products_in_category") else ""
+        if g.get("subcategories"):
+            extra += "<br>gồm: " + ", ".join(g["subcategories"]).replace("|", "/")
         lines.append(f"| {i} | {kind} | {g['name'].replace('|', '/')}{extra}<br>{g['url']} | "
                      f"{g['topic'].replace('|', '/')} | {kws} |")
     return "\n".join(lines)

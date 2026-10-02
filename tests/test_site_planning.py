@@ -228,3 +228,33 @@ def test_overlap_flags_post_vs_draft_and_exact_focus_keyword(tmp_path):
 def test_overlap_none():
     rows = [row("https://s.vn/a", "post", "Học đàn guitar"), row("https://s.vn/b", "post", "Nấu phở bò")]
     assert si.find_overlaps(rows, Path("/nonexistent"))["pairs"] == []
+
+
+def test_gaps_folds_subcategories_under_parent():
+    targets = [
+        {"type": "category", "name": "Balo", "products_in_category": 2},
+        {"type": "category", "name": "Balo Camping", "products_in_category": 3},
+        {"type": "category", "name": "Balo Camping Pro", "products_in_category": 1},
+        {"type": "category", "name": "Ví", "products_in_category": 0},
+        {"type": "product", "name": "Balo Smart X", "products_in_category": 0},
+    ]
+    out = si.fold_subcategories(targets)
+    names = [t["name"] for t in out]
+    assert names == ["Balo", "Ví", "Balo Smart X"]
+    assert out[0]["subcategories"] == ["Balo Camping", "Balo Camping Pro"]
+    assert out[0]["products_in_category"] == 6
+
+
+def test_noun_variant_uses_cach_chon():
+    assert si._noun_variants(["balo", "cách balo", "giá balo"], "balo") == ["balo", "cách chọn balo", "giá balo"]
+
+
+def test_bag_names_get_no_bich_variant_and_no_brackets():
+    rows = [{"type": "category", "name": "Dây Nịt Nam (Thắt Lưng)", "url": "https://x.vn/c/day-nit",
+             "priority": 3, "products_in_category": 0, "best_coverage": 0.0, "closest_post": ""},
+            {"type": "category", "name": "Túi Đeo Chéo", "url": "https://x.vn/c/tui",
+             "priority": 3, "products_in_category": 0, "best_coverage": 0.0, "closest_post": ""}]
+    out = si.suggest_topics({"posts_considered": 0, "threshold": 0.5, "total_gaps": 2, "gaps": rows})
+    belt, bag = out["gaps"]
+    assert belt["variants"][0] == "dây nịt nam"
+    assert not any("bịch" in v for v in bag["variants"])
