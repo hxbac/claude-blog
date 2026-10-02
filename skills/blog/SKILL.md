@@ -87,6 +87,7 @@ separate discipline.
    - `repurpose` → `blog-repurpose` (cross-platform content)
    - `taxonomy` → `blog-taxonomy` (tags, categories, CMS sync)
    - `publish` / `đăng bài` → `blog-publish` (WordPress draft by default; Haravan and Blogger; live only with `--publish`)
+   - `site` / `web của khách` → `blog-site` (inventory of the client site's posts, pages and products; used for real internal links)
    - `geo` / `aeo` / `citation` → `blog-geo` (AI citation audit)
    - `audit` / `health` → `blog-audit` (site-wide assessment)
    - `image` → `blog-image` (AI image generation and editing)

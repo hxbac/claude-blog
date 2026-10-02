@@ -45,6 +45,7 @@ claude-blog/
   scripts/dependency_smoke.py        # Offline optional-runtime initialization checks
   scripts/validate_public_release.py # Read-only public worktree validation
   scripts/publish_cms.py             # CMS publisher, draft by default (Phase N)
+  scripts/site_inventory.py          # Client site inventory CSV, search, refresh (Phase P)
   scripts/repurpose_vi.py            # Zalo OA / Facebook / TikTok scaffolds, one register (Phase N)
   skills/                            # 33 skill directories (1 orchestrator + 32 sub-skills)
     blog/SKILL.md                   # Main orchestrator, routing, scoring
@@ -73,6 +74,7 @@ claude-blog/
     blog-persona/SKILL.md         # Writing persona management
     blog-taxonomy/SKILL.md        # CMS taxonomy management
     blog-publish/SKILL.md         # Send a finished post to WordPress/Haravan/Blogger as a draft
+    blog-site/SKILL.md            # Client site inventory: posts, pages, products (Phase P)
     blog-notebooklm/               # NotebookLM source-grounded research
       SKILL.md                    # NotebookLM query sub-skill
       references/                 # 2 reference docs (commands, troubleshooting)
