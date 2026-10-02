@@ -25,7 +25,31 @@ import tempfile
 import time
 from typing import Optional
 
-CONFIG_PATH = os.path.expanduser("~/.config/claude-seo/google-api.json")
+
+def _load_credentials_file() -> None:
+    """Load the shared credentials file (GOOGLE_APPLICATION_CREDENTIALS,
+    GSC_PROPERTY, ...) through the repo's env_file.py, as claude-seo's copy of
+    this module does. Without it the service account in
+    ~/.config/ai-content/credentials.env is invisible here and every GSC call
+    fails with "Could not build GSC service". Optional: a copy of this skill
+    installed without the repo's scripts/ folder keeps the old behaviour."""
+    here = os.path.dirname(os.path.realpath(__file__))
+    candidates = [os.environ.get("CLAUDE_BLOG_SCRIPTS_DIR", ""),
+                  os.path.normpath(os.path.join(here, "..", "..", "..", "scripts"))]
+    for folder in candidates:
+        if folder and os.path.isfile(os.path.join(folder, "env_file.py")):
+            if folder not in sys.path:
+                sys.path.insert(0, folder)
+            try:
+                import env_file  # noqa: F401  (loads the file on import)
+            except Exception:
+                pass
+            return
+
+
+_load_credentials_file()
+
+CONFIG_PATH =os.path.expanduser("~/.config/claude-seo/google-api.json")
 TOKEN_PATH = os.path.expanduser("~/.config/claude-seo/oauth-token.json")
 
 # Service-to-scope mapping
