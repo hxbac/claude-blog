@@ -1053,7 +1053,9 @@ def picker_key(row: dict) -> str:
 def display_name(row: dict) -> str:
     """Product name for a list: the title up to its SEO tail, without the colour or
     size, so one design does not read as "... 016 Màu"."""
-    name = short_name(row, max_words=12)
+    # 20 words, not 12: a model code such as "Tài Lộc 005" sits at the end of a
+    # long shop title, and cutting it makes two designs read as one.
+    name = short_name(row, max_words=20)
     name = re.sub(r"\s+(?:màu|mầu|size|kích thước)\b.*$", "", name, flags=re.I)
     return name.strip(" ,;:-") or row.get("title", "")
 
@@ -1144,6 +1146,14 @@ def pick_products(site: Site, query: str, top: Optional[int] = None, *, in_stock
     return res
 
 
+def format_price_vnd(price: str) -> str:
+    """"222750" -> "222.750đ"; anything that is not a plain number is kept."""
+    n = _price_number(price)
+    if n is None or n != int(n):
+        return price or ""
+    return f"{int(n):,}".replace(",", ".") + "đ"
+
+
 def render_products(res: dict) -> str:
     lines = [f"## Sản phẩm cho bài \"{res['query']}\" ({res['site']})", "",
              f"Cụm tên sản phẩm: {res['head'] or '(không rõ)'}. Cần {res['requested']}, "
@@ -1152,7 +1162,7 @@ def render_products(res: dict) -> str:
         lines += ["| # | Sản phẩm | Giá tham khảo | Tồn kho | Biến thể | URL |", "| --- | --- | --- | --- | --- | --- |"]
         for i, it in enumerate(res["items"], 1):
             stock = {"yes": "còn hàng", "no": "hết hàng"}.get(it["in_stock"], "chưa rõ")
-            lines.append(f"| {i} | {_cell(it['name'])} | {_cell(it['price'])} | {stock} | "
+            lines.append(f"| {i} | {_cell(it['name'])} | {_cell(format_price_vnd(it['price']))} | {stock} | "
                          f"{it['variants']} | {it['url']} |")
     if res["note"]:
         lines += ["", res["note"]]

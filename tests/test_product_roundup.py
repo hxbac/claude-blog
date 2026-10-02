@@ -547,3 +547,17 @@ def test_analyze_blog_does_not_count_listed_products(tmp_path, root):
     d, p = write_draft(tmp_path, BODY + "\n" + "Một câu dài về balo đi học. " * 120)
     res = analyze_blog.analyze_file(str(p), mode="draft")
     assert res["site_links"]["count"] == 0 and res["site_links"]["products"] == 0
+
+
+def test_price_is_formatted_as_vnd():
+    import internal_links as il
+    assert il.format_price_vnd("222750") == "222.750đ"
+    assert il.format_price_vnd("1.250.000") == "1.250.000đ"
+    assert il.format_price_vnd("") == ""
+
+
+def test_display_name_keeps_model_code_of_long_titles():
+    import internal_links as il
+    row = {"type": "product",
+           "title": "Ví Ngang Công Sở Da Ý Công Nghệ RFID Chống Trộm Tài Lộc 005 Màu Đen"}
+    assert il.display_name(row).endswith("Tài Lộc 005")
