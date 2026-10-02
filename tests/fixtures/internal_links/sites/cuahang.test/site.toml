@@ -1,0 +1,7 @@
+base_url = "https://cuahang.test"
+cms = "other"
+brand = "Cửa Hàng"
+lang = "vi"
+sitemaps = []
+include = []
+exclude = []

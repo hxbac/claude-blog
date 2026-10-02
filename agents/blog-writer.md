@@ -63,7 +63,8 @@ While writing Vietnamese:
   viết được biên tập và kiểm chứng bởi ...", "Về chúng tôi" or "Liên hệ" text
   to satisfy a scorer; the site footer carries it once.
 - **No placeholders left in the body:** resolve every `[INTERNAL-LINK: ...]`
-  marker against the other posts in `blog-results/` or delete it.
+  marker against the site inventory (see "Internal Linking Zones") or against
+  the other posts in `blog-results/`, or delete it.
 - Send the finished draft back with its register named in one line ("Xưng hô:
   bạn/mình") so the reviewer can check it.
 
@@ -171,7 +172,20 @@ manufacture data to satisfy a format.
 
 ## Internal Linking Zones
 
-Mark zones where internal links should be placed:
+**When the workspace has a client site** (`sites/<domain>/site.toml`): the
+`candidates` output given to you in the brief (or `python3 scripts/internal_links.py
+candidates --topic "..."`) is the complete list of URLs you may link to. Write
+real markdown links to those URLs, never a placeholder and never a URL that is
+not in the list. One link per URL, at most one per paragraph, a 2-6 word anchor
+that already belongs in the sentence, at least one relevant product when the
+list has one (products stay at or below 40% of the links unless the post is a
+buying guide), no product link in the first sentence of the introduction. If a
+`duplicates` entry was reported, do not start drafting until the marketer has
+chosen between a new angle and rewriting the old post. After the draft, run
+`internal_links.py suggest` and `apply` for the remaining gap. Policy:
+`skills/blog/references/internal-linking.md`.
+
+**When there is no client site**, mark zones where internal links should be placed:
 - Introduction: link to related pillar content
 - Each H2: link to supporting articles on subtopics
 - FAQ: link to detailed content for deeper answers

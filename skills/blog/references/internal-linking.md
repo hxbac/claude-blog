@@ -49,6 +49,32 @@ The number of internal links per post should scale with content length.
 
 ---
 
+## Site-aware linking (client site configured)
+
+When the post's `canonical` host is a site under `sites/` (see `blog-site`),
+`scripts/internal_links.py` and the gates enforce this policy against the
+site's `inventory.csv`:
+
+| Rule | Detail |
+|------|--------|
+| Targets | Only URLs in the inventory. Rows with `exclude=yes` or `type=gone` are never linked; the post never links to itself |
+| Density | By word count, using the table above; `suggest` aims at the middle of the band, `apply` refuses links beyond the maximum |
+| Per target, per paragraph | One link per target URL; at most one link per paragraph. Colour variants of one product count as one target |
+| Anchor | A 2-6 word span that already exists in the sentence, never inside a heading, code, quote, table, image alt or another link. Matching ignores diacritics; the inserted anchor keeps the paragraph's own spelling |
+| Anchor mix | Exact-match anchors (the focus keyword or a listed `anchors` entry) at most 1 in 10 links, never fewer than one allowed |
+| Products | At most 40% of the internal links, except in a buying guide. A buying guide has `content_type`, `type` or `template` set to `buying-guide`, `product-review`, `comparison` or `roundup`, or a title such as "cách chọn", "hướng dẫn mua", "kinh nghiệm mua", "tốt nhất", "top N", "review", "so sánh" |
+| Introduction | No product link in the first sentence of the first body paragraph |
+| Duplicates | Before drafting, `candidates` flags live posts whose title, h1 or focus keyword overlaps the topic (recall-weighted F-score of 0.7 or more on content words, `internal_links.dup_score`); the marketer decides between a new angle and `blog-rewrite` of the old URL |
+| Reverse links | `reverse` lists older posts that should link to the new one with a suggested anchor and sentence; the marketer pastes them into the CMS. Nothing edits the live site |
+
+Gate 5 blocks an unresolved `[INTERNAL-LINK:` placeholder and any internal URL
+that is not in the inventory, naming the URL and the
+`site_inventory.py add` command. `draft_rubric.py` scores the links (count
+against the band, product share, anchor mix) instead of listing them in the
+pre-publish checklist. A post with no configured site is not affected.
+
+---
+
 ## Anchor Text Distribution
 
 Anchor text is the visible, clickable text of a hyperlink. Its optimization is

@@ -68,6 +68,14 @@ WEIGHTS: dict[str, int] = {
     'no_trust_boilerplate': 4,
 }
 
+#: Scored only when the post's canonical host is a configured client site
+#: (``sites/``): internal links move out of the pre-publish checklist and into
+#: the score. An item that does not apply leaves the denominator, so a post with
+#: no site is scored exactly as before.
+SITE_WEIGHTS: dict[str, int] = {
+    'internal_links': 8,
+}
+
 GROUPS: dict[str, tuple[str, ...]] = {
     'voice_and_register': ('register', 'lexical_tells', 'structure_cluster', 'sentence_length'),
     'evidence': ('evidence',),
@@ -77,6 +85,7 @@ GROUPS: dict[str, tuple[str, ...]] = {
 }
 
 ITEM_LABELS_VI = {
+    'internal_links': 'Liên kết nội bộ (số lượng, tỉ lệ sản phẩm, kiểu neo)',
     'register': 'Xưng hô nhất quán',
     'lexical_tells': 'Mật độ cụm từ sáo rỗng',
     'structure_cluster': 'Cấu trúc câu chữ (dấu hiệu máy)',
@@ -276,7 +285,7 @@ def calculate_draft_score(analysis: dict[str, Any]) -> dict[str, Any]:
     def add(name: str, score: float, detail: str, applicable: bool = True) -> None:
         items[name] = {
             'score': int(round(score)) if applicable else 0,
-            'max': WEIGHTS[name],
+            'max': WEIGHTS.get(name, SITE_WEIGHTS.get(name, 0)),
             'applicable': applicable,
             'detail': detail,
         }
@@ -523,6 +532,11 @@ def calculate_draft_score(analysis: dict[str, Any]) -> dict[str, Any]:
         issue('hygiene', 'high', 'Thiếu "lang: vi" trong frontmatter. Bài sẽ bị chấm theo mẫu tiếng Anh.')
     add('frontmatter', pts, f'{pts}/6.')
 
+    # Internal links (only with a configured client site) ------------------
+    site_links = analysis.get('site_links')
+    if site_links:
+        _score_site_links(site_links, language, add, issue)
+
     # 11. Trust boilerplate inside the body --------------------------------
     patterns = vi_profile.VI_PROFILE['trust_boilerplate_patterns'] if vi else (
         r'reviewed\s+and\s+(?:edited|fact.?checked)\s+by', r'about\s+us', r'contact\s+us',
@@ -560,7 +574,10 @@ def calculate_draft_score(analysis: dict[str, Any]) -> dict[str, Any]:
 
     categories: dict[str, int] = {}
     category_details: dict[str, dict[str, Any]] = {}
-    for group, names in GROUPS.items():
+    groups = dict(GROUPS)
+    if 'internal_links' in items:
+        groups['site_links'] = ('internal_links',)
+    for group, names in groups.items():
         mx = sum(items[n]['max'] for n in names if items[n]['applicable'])
         sc = sum(items[n]['score'] for n in names if items[n]['applicable'])
         categories[group] = sc
@@ -594,6 +611,69 @@ def calculate_draft_score(analysis: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _score_site_links(sl: dict[str, Any], language: str, add, issue) -> None:
+    """8 points: count against the density band (4), product share (2), anchor mix (2).
+
+    Counts only links that resolve to a page in the inventory; an unresolved
+    placeholder caps the count at 1 point. The numbers come from
+    ``internal_links.link_summary``.
+    """
+    n = sl['count']
+    lo, hi = sl['min'], sl['max']
+    bad_urls = list(sl['unknown']) + list(sl['gone'])
+    valid = max(0, n - len(bad_urls))
+    if lo <= valid <= hi:
+        count_pts = 4
+    elif valid == lo - 1:
+        count_pts = 3
+    elif valid == lo - 2 or valid > hi:
+        count_pts = 2
+    else:
+        count_pts = 1 if valid >= 1 else 0
+    if valid < lo:
+        issue('links', 'medium', _m(
+            language, f'Chỉ có {valid} liên kết nội bộ hợp lệ, bài cần {lo} đến {hi}. '
+                      'Chạy internal_links.py suggest rồi apply, hoặc thêm bằng tay tới các URL trong candidates.',
+            f'Only {valid} valid internal links; this length needs {lo} to {hi}.'))
+    elif valid > hi:
+        issue('links', 'low', _m(
+            language, f'Có {valid} liên kết nội bộ, nhiều hơn mức tối đa {hi}. Bỏ bớt liên kết ít liên quan nhất.',
+            f'{valid} internal links, above the maximum of {hi}.'))
+    if sl['placeholders']:
+        count_pts = min(count_pts, 1)
+        issue('links', 'high', _m(
+            language, f'Còn {sl["placeholders"]} chỗ giữ chỗ [INTERNAL-LINK: ...] chưa thay bằng liên kết thật.',
+            f'{sl["placeholders"]} unresolved [INTERNAL-LINK: ...] placeholders.'))
+    for url in bad_urls:
+        issue('links', 'high', _m(
+            language, f'Liên kết nội bộ không dùng được (không có trong danh sách web hoặc trang đã gỡ): {url}.',
+            f'Internal link not usable (not in the site inventory, or gone): {url}.'))
+
+    share_pts = 2
+    if n and not sl['buying_guide'] and sl['products'] / n > 0.4 + 1e-9:
+        share_pts = 0
+        issue('links', 'medium', _m(
+            language, f'Sản phẩm chiếm {sl["products"]}/{n} liên kết, quá 40%. Chỉ bài hướng dẫn mua hàng mới được nhiều hơn.',
+            f'Products are {sl["products"]} of {n} links, above 40%.'))
+
+    mix_pts = 2
+    allowed_exact = max(1, n // 10)
+    if sl['exact'] > allowed_exact:
+        mix_pts -= 1
+        issue('links', 'low', _m(
+            language, f'Có {sl["exact"]} neo khớp nguyên văn từ khóa trên {n} liên kết (tối đa {allowed_exact}). Đổi bớt sang neo diễn đạt tự nhiên.',
+            f'{sl["exact"]} exact-match anchors in {n} links (max {allowed_exact}).'))
+    if sl['repeated_anchors']:
+        mix_pts -= 1
+        issue('links', 'low', _m(
+            language, 'Có neo bị lặp lại cho nhiều liên kết: ' + ', '.join(sl['repeated_anchors'][:3]) + '.',
+            'The same anchor text is reused: ' + ', '.join(sl['repeated_anchors'][:3]) + '.'))
+
+    detail = (f'{n} liên kết (cần {lo}-{hi}), {sl["products"]} sản phẩm, {sl["exact"]} neo nguyên văn, '
+              f'web {sl["site"]}.')
+    add('internal_links', count_pts + share_pts + max(0, mix_pts), detail)
+
+
 def rating_for(total: int) -> str:
     if total >= 90:
         return 'Exceptional'
@@ -622,7 +702,7 @@ def prepublish_checklist(analysis: dict[str, Any]) -> list[dict[str, str]]:
         status = 'ok' if ok else ('todo' if ok is False else 'unknown')
         return {'item': key, 'status': status, 'note': _m(lang, vi, en)}
 
-    return [
+    rows = [
         row('internal_links', links['internal_count'] >= 3 or None,
             f'Liên kết nội bộ: {links["internal_count"]}. Khi đăng, thêm 3-10 liên kết tới bài liên quan trên site.',
             f'Internal links: {links["internal_count"]}. When published, add 3-10 links to related posts.'),
@@ -653,3 +733,7 @@ def prepublish_checklist(analysis: dict[str, Any]) -> list[dict[str, str]]:
             'Sponsored/affiliate/functional-food disclosure: checked automatically as a Gate 4 P0 and '
             'in Gate 5 when sponsored/affiliate/topic_class are set.'),
     ]
+    if analysis.get('site_links'):
+        # With a configured client site the links are scored, not listed.
+        rows = [r for r in rows if r['item'] != 'internal_links']
+    return rows

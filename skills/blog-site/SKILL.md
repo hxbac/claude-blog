@@ -105,4 +105,8 @@ ask one short question: which site.
 | `sites/<domain>/cache/` | no | conditional-GET cache |
 
 Other scripts read the inventory through `site_inventory.load_inventory`,
-`find_site_for_host` and `search`.
+`find_site_for_host` and `search`. `internal_links.py` (Phase Q) turns it into
+real links in a draft: `candidates` (before writing, with a duplicate-topic
+check), `suggest` and `apply` (after the draft), `reverse` (which old posts
+should link to the new one). Gate 5 and the draft rubric use the same
+inventory; `publish_cms.py` adds the new URL after a live publish.

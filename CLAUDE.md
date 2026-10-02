@@ -46,6 +46,7 @@ claude-blog/
   scripts/validate_public_release.py # Read-only public worktree validation
   scripts/publish_cms.py             # CMS publisher, draft by default (Phase N)
   scripts/site_inventory.py          # Client site inventory CSV, search, refresh (Phase P)
+  scripts/internal_links.py          # Real internal and product links: candidates, suggest, apply, reverse (Phase Q)
   scripts/repurpose_vi.py            # Zalo OA / Facebook / TikTok scaffolds, one register (Phase N)
   skills/                            # 33 skill directories (1 orchestrator + 32 sub-skills)
     blog/SKILL.md                   # Main orchestrator, routing, scoring

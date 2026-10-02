@@ -839,6 +839,7 @@ class _MetaParser(HTMLParser):
         super().__init__()
         self.imgs: list[str] = []
         self.links: list[str] = []
+        self.article_links: list[str] = []
         self.codes: list[str] = []
         self.ids: set[str] = set()
         self.og_image: Optional[str] = None
@@ -865,6 +866,8 @@ class _MetaParser(HTMLParser):
             self.imgs.append(d["src"])
         elif tag == "a" and d.get("href"):
             self.links.append(d["href"])
+            if self._in_article and not self._in_footer and not self._in_header:
+                self.article_links.append(d["href"])
         elif tag == "meta" and d.get("property") == "og:image" and d.get("content"):
             self.og_image = d["content"]
         elif tag == "meta" and d.get("property") == "og:image:width" and d.get("content"):
@@ -1137,6 +1140,46 @@ def _compliance_check(draft_dir: Path, md_path: Path | None = None) -> dict[str,
     return out
 
 
+def _site_link_check(draft_dir: Path, parser: "_MetaParser", raw_html: str,
+                     md_path: Path | None) -> dict[str, Any] | None:
+    """Internal-link checks against the client site inventory (Phase Q).
+
+    Returns None, and Gate 5 behaves exactly as before, unless the post's
+    canonical host is a configured site under ``sites/`` (or
+    ``$CLAUDE_BLOG_SITES_ROOT``). Otherwise: an unresolved ``[INTERNAL-LINK:``
+    placeholder blocks, and so does an internal URL that is not in the
+    inventory, with a Vietnamese message naming the URL and the command that
+    adds it.
+    """
+    try:
+        import internal_links
+    except ImportError:
+        return None
+    md_text = ""
+    if md_path is not None:
+        try:
+            md_text = _read_text_no_follow(md_path)
+        except (OSError, ValueError):
+            md_text = ""
+    canonical = parser.canonical or ""
+    if not canonical and md_text:
+        canonical = internal_links.parse_frontmatter(md_text)[0].get("canonical", "")
+    try:
+        site_dir = internal_links.site_for_canonical(canonical)
+        if site_dir is None:
+            return None
+        site = internal_links.load_site(site_dir)
+    except Exception as exc:  # a broken site folder must not crash the gate
+        return {"violations": [], "warnings": [f"Không đọc được danh sách web để kiểm tra liên kết nội bộ: {exc}"],
+                "info": {}}
+    res = internal_links.check_internal_links(
+        site, md_text, parser.article_links, canonical, html_text=raw_html,
+        draft_hint=f"blog-results/{draft_dir.name}/")
+    return {"violations": res["violations"], "warnings": res["warnings"],
+            "info": {"site": site.name, "internal_urls": res["internal_urls"],
+                     "placeholders": res["placeholders"]}}
+
+
 def gate_5_asset_link_integrity(
     draft_dir: Path,
     slug: str | None = None,
@@ -1306,8 +1349,16 @@ def gate_5_asset_link_integrity(
     violations.extend(compliance["violations"])
     warnings.extend(compliance["warnings"])
 
+    extra: dict[str, Any] = {}
+    site_links = _site_link_check(draft_dir, parser, raw, selected["md"][0] if selected["md"] else None)
+    if site_links is not None:
+        violations.extend(site_links["violations"])
+        warnings.extend(site_links["warnings"])
+        extra["site_internal_links"] = site_links["info"]
+
     return _gate_result(
         5, "Asset + Link Integrity", not violations, violations, warnings,
+        **extra,
         imgs=parser.imgs, links_checked=len(parser.links),
         json_ld_valid=json_ld_ok, declared_word_count=declared_word_count,
         schema_validation_source=schema_validation_source,

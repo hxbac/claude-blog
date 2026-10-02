@@ -54,12 +54,15 @@ the script, say so in one line and keep the lower score.
 | Reader utility | 8 | A concrete example, list, table or summary |
 | Frontmatter | 6 | Named author, date, slug, canonical, `lang` |
 | No trust boilerplate in the body | 4 | About, contact, "biên tập bởi" belong in the site footer |
+| Internal links (8, only when the canonical host is a configured client site) | 8 | Count against the length band, products at most 40% unless a buying guide, exact-match anchors at most 1 in 10; every URL must be in `inventory.csv` and no `[INTERNAL-LINK:` placeholder may remain. The review lists them in `review.md` |
 
 Items that do not apply leave the denominator (they are not losses). The
-site-level items, internal links, about and contact, schema, Open Graph,
-crawler access, live canonical, image alt, legal disclosure, are a
-**pre-publish checklist**: list them under "Before publishing" and never
-subtract points for them.
+site-level items, internal links (when no client site is configured), about
+and contact, schema, Open Graph, crawler access, live canonical, image alt,
+legal disclosure, are a **pre-publish checklist**: list them under "Before
+publishing" and never subtract points for them. With a client site the
+internal links are scored (the row above) and `review.md` names each link, its
+target type and anchor.
 
 **P0 (blocks regardless of the number):** register drift above the ratio;
 chatbot residue; a fabricated statistic (a number attributed to a study or

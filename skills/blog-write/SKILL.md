@@ -62,6 +62,15 @@ For a deeper surface-by-surface workflow, see
    - Desired word count (default: 2,000-2,500 words)
    - Platform/format (MDX, markdown, HTML - auto-detect if in a project)
 2. **If a brief exists** - Load it and skip to Phase 1.5
+3. **Site check (only when `sites/` holds a client site)** - Run, from the
+   workspace: `python3 scripts/internal_links.py candidates --topic "<chủ đề>" [--site d]`.
+   It returns the only internal URLs you may link to, and a `duplicates` list of
+   live posts that already cover the topic (title or focus keyword overlap scores
+   0.7 or more, see `internal_links.dup_score`). If `duplicates` is not empty, stop and ask the marketer exactly one
+   question, in Vietnamese, before researching: write a new angle that differs
+   from that post, or rewrite the old post at that URL (`blog-rewrite`)? Do not
+   draft until they answer. Set `canonical:` from `canonical_pattern` in
+   `site.toml`. With no site configured, skip this step.
 
 ### Phase 1.5: Template Selection
 
@@ -378,8 +387,19 @@ points.
 
 #### 5f. Internal Linking Zones
 
-Mark internal linking opportunities throughout the article using placeholder
-notation. The user (or a follow-up pass) will resolve these to actual URLs.
+**With a client site configured** (step 3 of Phase 1): write real markdown links
+to URLs from `candidates` only, never a URL you made up and never a
+`[INTERNAL-LINK: ...]` placeholder. Use a natural 2-6 word anchor that already
+belongs in the sentence, one link per target, at most one per paragraph, at
+least one product when a relevant one is listed. After the draft, run
+`python3 scripts/internal_links.py suggest --draft blog-results/<slug>/` then
+`apply` to fill the gap to the density target; Gate 5 blocks any placeholder or
+URL that is not in the inventory. The rules are in
+`skills/blog/references/internal-linking.md` ("Site-aware linking").
+
+**Without a client site**, mark internal linking opportunities throughout the
+article using placeholder notation. The user (or a follow-up pass) will resolve
+these to actual URLs.
 
 Zone placement:
 - **Introduction** - Link to related pillar content or topic hub
@@ -481,7 +501,7 @@ Answer completely, with source attribution where the claim needs it.
 ```
 
 #### 5n. Internal Linking
-- 5-10 internal links per 2,000-word post
+- 5-10 internal links per 2,000-word post (real links when a client site is configured)
 - Link to relevant existing content naturally
 - Use descriptive anchor text (not "click here")
 

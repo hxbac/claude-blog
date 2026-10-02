@@ -15,7 +15,12 @@ Order of work, and a failure at any step sends nothing:
    frontmatter, hero and Phase K compliance checks (always run);
 3. credentials from the credentials file (``env_file``); missing ones are
    named, never their values;
-4. create the post through the chosen client.
+4. create the post through the chosen client;
+5. after a successful LIVE publish only (never a draft, never ``--dry-run``), when
+   the post's canonical host is a configured client site, add the URL to that
+   site's inventory (``site_inventory.py add``) and print the old posts that
+   should link to it (``internal_links.py reverse``). A failure in this step is
+   reported on stderr and never fails the publish; the live site is not edited.
 
 Credentials are read from the environment that ``env_file`` fills. They are
 never printed, never logged, never written to the workspace, and the HTTP
@@ -583,6 +588,48 @@ def _save_report(draft: Path, cms: str, result: Result) -> Optional[Path]:
     return out
 
 
+def record_in_inventory(draft: Path, md_path: Path, post: Post, fm: dict, result: Result,
+                        out=print, quiet: bool = False) -> None:
+    """After a successful live publish: add the new URL to the client site's
+    inventory and print which old posts should link to it (Phase Q).
+
+    Does nothing when the post is not on a configured site. A failure here is
+    reported and swallowed: the post is already live, so it must never turn the
+    publish into a failure. A draft on the CMS is not recorded (its URL is a
+    preview, not the public page), and nothing here ever edits the live site.
+    """
+    try:
+        import internal_links
+        import site_inventory
+        candidates = [u for u in (post.canonical, result.url) if u]
+        site_dir = url = None
+        for u in candidates:
+            site_dir = internal_links.site_for_canonical(u)
+            if site_dir is not None:
+                url = u
+                break
+        if site_dir is None:
+            return
+        args = argparse.Namespace(
+            url=url, site=str(site_dir), title=post.title, description=post.description,
+            category=(post.categories[0] if post.categories else ""),
+            focus_keyword=str(fm.get("focus_keyword") or fm.get("primary_keyword") or fm.get("keyword") or ""),
+            type="post", fetch=False)
+        site_inventory.cmd_add(args, out=(lambda *_: None))
+        if quiet:
+            return
+        out(f"Đã thêm bài vào danh sách của web {site_dir.name}: {url}")
+        site = internal_links.load_site(site_dir)
+        draft_obj = internal_links.load_draft(md_path)
+        info = internal_links.post_info(draft_obj, url)
+        sugg = internal_links.reverse_suggestions(site, info, top=5)
+        if sugg:
+            out(internal_links.render_reverse(sugg, url))
+    except Exception as exc:  # noqa: BLE001 - the post is already live
+        print(f"Lưu ý: bài đã đăng nhưng chưa ghi được vào danh sách web ({exc}). "
+              "Thêm tay bằng: python3 scripts/site_inventory.py add <địa chỉ bài>", file=sys.stderr)
+
+
 def run(args: argparse.Namespace, out=print) -> int:
     draft = Path(args.draft).resolve()
     if not draft.is_dir():
@@ -645,6 +692,7 @@ def run(args: argparse.Namespace, out=print) -> int:
     except OSError:
         pass
     if live:
+        record_in_inventory(draft, md_path, post, _fm, result, out=out, quiet=bool(args.json))
         out(notify_indexnow(result.url))
     elif not args.json:
         out("Khi cần lên sóng, nói: \"đăng chính thức bài này\" (chạy lại với --publish).")

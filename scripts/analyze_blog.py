@@ -1332,12 +1332,43 @@ def analyze_schema(content: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def analyze_links(content: str) -> dict[str, Any]:
-    """Analyze internal and external links, anchor quality, and tiers."""
+def _site_link_context(frontmatter: dict[str, Any], body: str) -> tuple[dict[str, Any] | None, frozenset | None]:
+    """(link summary, hosts) when the post's canonical host is a configured
+    client site (``sites/`` or ``$CLAUDE_BLOG_SITES_ROOT``), else (None, None).
+    Nothing changes for a post without a site."""
+    canonical = str(frontmatter.get('canonical', '') or '')
+    if not canonical:
+        return None, None
+    try:
+        import internal_links
+        site_dir = internal_links.site_for_canonical(canonical)
+        if site_dir is None:
+            return None, None
+        site = internal_links.load_site(site_dir)
+        summary = internal_links.link_summary(body, frontmatter, site)
+        return summary, frozenset({site.host, 'www.' + site.host} - {''})
+    except Exception:
+        return None, None
+
+
+def analyze_links(content: str, site_hosts: frozenset | None = None) -> dict[str, Any]:
+    """Analyze internal and external links, anchor quality, and tiers.
+
+    Only relative links are internal, unless ``site_hosts`` is given (a client
+    site is configured for this post): then an absolute link to one of those
+    hosts is internal too.
+    """
     # Internal links: relative paths (not starting with http or /)
     internal = re.findall(r'\[([^\]]+)\]\((?!https?://|#)([^)]+)\)', content)
     # External links
     external = re.findall(r'\[([^\]]+)\]\((https?://[^)]+)\)', content)
+    if site_hosts:
+        def _host(u: str) -> str:
+            h = (urllib.parse.urlparse(u).hostname or '').lower()
+            return h[4:] if h.startswith('www.') else h
+        own = [(a, u) for a, u in external if _host(u) in site_hosts]
+        internal += own
+        external = [(a, u) for a, u in external if _host(u) not in site_hosts]
 
     bad_anchor_keywords = {'click here', 'read more', 'this article', 'here', 'link', 'this'}
     bad_anchors = [a for a, _ in internal + external if a.lower().strip() in bad_anchor_keywords]
@@ -2318,6 +2349,7 @@ def analyze_file(file_path: str, mode: str | None = 'full') -> dict[str, Any]:
         body = strip_frontmatter(content)
     language = _detect_language(frontmatter, body)
     mode = _resolve_mode(mode, path.suffix)
+    site_links, site_hosts = _site_link_context(frontmatter, body)
 
     # Strip markdown formatting for plain-text analysis
     plain_text = _plain_text_for_analysis(body)
@@ -2360,7 +2392,7 @@ def analyze_file(file_path: str, mode: str | None = 'full') -> dict[str, Any]:
         'transition_words': analyze_transition_words(plain_text, language),
         'ai_trigger_words': analyze_ai_trigger_words(plain_text, language),
         'schema': analyze_schema(content),
-        'links': analyze_links(body),
+        'links': analyze_links(body, site_hosts),
         'originality': analyze_originality(body, language),
         'engagement': analyze_engagement(body, language),
         'ai_citation_readiness': ai_citation_readiness,
@@ -2385,6 +2417,8 @@ def analyze_file(file_path: str, mode: str | None = 'full') -> dict[str, Any]:
         plain_text, language, analysis['ai_signals'], analysis['ai_trigger_words']
     )
     analysis['mode'] = mode
+    if site_links is not None:
+        analysis['site_links'] = site_links
 
     analysis['score'] = (
         draft_rubric.calculate_draft_score(analysis) if mode == 'draft'
