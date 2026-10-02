@@ -37,6 +37,12 @@ WordPress" alone means: create the draft and show the link.
    `--dry-run` checks everything and sends nothing.
 3. Relay the output in Vietnamese: the draft link, the edit link, and any note.
    Never paste a credential, and never ask the user to type one in chat.
+4. After a real publish (not a draft), when the site is connected to Search
+   Console, tell the marketer in one line to ask again in 3 to 5 days: "bài này
+   đã được Google index chưa". That runs
+   `python3 scripts/site_inventory.py index-check <url>` (or `--recent 5`), which
+   only reads Google's verdict and never submits anything. Do not run it
+   right after publishing: Google has not seen the page yet.
 
 ## What the sender does
 

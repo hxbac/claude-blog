@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Search Console in the writing pipeline (Phase U): `site_inventory.py gsc-sync`
+  (generated columns `gsc_clicks`, `gsc_impressions`, `gsc_position`,
+  `gsc_top_query`, `gsc_synced_at`), `opportunities` (queries at position 5 to
+  20 with a suggested action) and `index-check` (read-only URL Inspection, in
+  Vietnamese), all through `blog-google` as a subprocess. `internal_links.py`
+  weights striking-distance rows x1.25 (capped at priority 5) and offers
+  `gsc_top_query` as an anchor only where a paragraph spells it out.
+  `content_decay.py --live` falls back to 28 days against 28 days and explains a
+  short history in Vietnamese instead of failing.
 - Draft-mode rubric (`scripts/draft_rubric.py`, `analyze_blog.py --mode draft`,
   the CLI default for `.md`): scores what a draft controls (register, lexical
   tells, structural cluster, sentence length against the 20-syllable threshold,

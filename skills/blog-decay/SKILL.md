@@ -50,6 +50,28 @@ also run a year-over-year comparison using the same date length, filters, search
 type, device, country, and property. When possible, inspect up to 16 months of
 GSC history before diagnosing a traffic drop.
 
+## Short history (a newly connected site)
+
+A site connected to Search Console recently has no previous period, so the
+quarter-over-quarter comparison has nothing to compare against. This is not an
+error. Run the live mode:
+
+```bash
+python3 scripts/content_decay.py --live [--property sc-domain:example.com] [--days 90]
+```
+
+It compares the last `--days` (default 90) with the period before; when the
+earlier period has no rows it falls back to 28 days against the 28 days before,
+and says so (`message`, in Vietnamese, with the first date Search Console has
+data). When even that has no previous rows, the output is `"status":
+"short_history"` with a Vietnamese explanation: since which date the data starts
+and roughly when a comparison becomes possible. Relay that text; do not report
+any page as declining, because no number can show a decline without a previous
+period. With offline files, an empty previous export gives the same explanation
+(add `--first-data-date YYYY-MM-DD` to name the date). A live comparison with
+very little traffic carries a warning that the result is a place to look, not a
+verdict.
+
 ## Decay Model
 
 The default metric is `clicks`. Also review impressions, CTR, average position,

@@ -30,6 +30,13 @@ placeholders the plan names. It refuses an anchor that does not occur exactly
 once in its paragraph, sits in a heading, code, quote, table, image alt or an
 existing link, and anything that breaks the policy below.
 
+Search Console (Phase U, optional): when ``site_inventory.py gsc-sync`` has filled
+``gsc_*``, a row ranked at positions 5 to 20 with 10+ impressions is a striking
+distance target and its link weight is multiplied by ``STRIKING_BOOST`` (1.25),
+never above the weight of a hand-set priority of 5. Its ``gsc_top_query`` is also
+an anchor candidate, but only where a paragraph contains that exact text (the
+anchor rules above still apply). Without ``gsc_*`` data nothing changes.
+
 Policy (shared by ``suggest``, ``apply`` and the Gate 5 / rubric summary):
 
 * Density by word count (skills/blog/references/internal-linking.md):
@@ -438,6 +445,33 @@ def _priority(row: dict) -> float:
     return max(1, min(5, p)) / 3.0
 
 
+#: Striking distance (Phase U). A row that Search Console ranks between
+#: positions 5 and 20 with at least ``STRIKING_MIN_IMPRESSIONS`` impressions is a
+#: better link target: a few internal links can push it onto page one. Its link
+#: weight is multiplied by ``STRIKING_BOOST`` (1.25), but never beyond the weight of
+#: a hand-set priority of 5 (5/3), so the marketer's own priority still wins.
+#: Rows without ``gsc_*`` data get exactly 1.0, so ranking is unchanged.
+STRIKING_BOOST = 1.25
+STRIKING_MIN_POS, STRIKING_MAX_POS = 5.0, 20.0
+STRIKING_MIN_IMPRESSIONS = 10
+
+
+def is_striking(row: dict) -> bool:
+    try:
+        pos = float(row.get("gsc_position") or 0)
+        imp = float(row.get("gsc_impressions") or 0)
+    except (TypeError, ValueError):
+        return False
+    return STRIKING_MIN_POS <= pos <= STRIKING_MAX_POS and imp >= STRIKING_MIN_IMPRESSIONS
+
+
+def striking_boost(row: dict) -> float:
+    """Multiplier for a link target: 1.0 unless the row is in striking distance."""
+    if not is_striking(row):
+        return 1.0
+    return max(1.0, min(STRIKING_BOOST, (5 / 3) / _priority(row)))
+
+
 def is_self(row_or_url, canonical: str, slug: str = "") -> bool:
     url = row_or_url["url"] if isinstance(row_or_url, dict) else row_or_url
     if canonical and norm_url(url) == norm_url(canonical):
@@ -481,6 +515,11 @@ class RowForms:
                 t = tuple(fold_words(part))
                 if t and t not in self.exact:
                     self.exact.append(t)
+        # Search Console's top query for the page: an anchor candidate, but only
+        # where a paragraph spells it out (find_candidates checks), 2 to 6 words.
+        self.gsc_text = normalize(row.get("gsc_top_query") or "").strip().lower()
+        gt = tuple(fold_words(self.gsc_text))
+        self.gsc = gt if MIN_SPAN_WORDS <= len(gt) <= MAX_SPAN_WORDS and gt not in self.exact else ()
         i = site.index.get(norm_url(row["url"]))
         weights = site.docs[i] if i is not None else row_weights(row)
         self._weights = weights
@@ -517,6 +556,8 @@ class RowForms:
                 if len(extras) <= 2 and not any(w in STOP_PLAIN or w in _STOP_FOLDED_RISKY for w in extras):
                     return "partial"
         kind = self.partial.get(span)
+        if kind is None and self.gsc and span == self.gsc:
+            return "gsc"
         return kind
 
     def anchor_hints(self, n: int = 3) -> list:
@@ -1228,12 +1269,14 @@ def candidates(site: Site, topic: str, top: int = 25) -> dict:
     for t in ("post", "category", "product", "page"):
         for r in taken[t]:
             forms = RowForms(r, site)
+            boost = striking_boost(r)
             items.append({
                 "url": r["url"], "type": t, "title": r.get("title", ""),
                 "category": r.get("category", ""), "price": r.get("price", ""),
                 "focus_keyword": r.get("focus_keyword", ""), "anchors": r.get("anchors", ""),
-                "priority": r.get("priority", ""), "score": r["score"],
+                "priority": r.get("priority", ""), "score": round(r["score"] * boost, 4),
                 "variants": r["variants"], "anchor_hints": forms.anchor_hints(),
+                **({"striking": True} if boost > 1.0 else {}),
             })
     items.sort(key=lambda d: -d["score"])
     items = items[:top]
@@ -1256,6 +1299,8 @@ def render_candidates(res: dict) -> str:
               "| # | Loại | Tiêu đề | URL | Gợi ý neo |", "| --- | --- | --- | --- | --- |"]
     for i, c in enumerate(res["candidates"], 1):
         extra = f" (+{c['variants'] - 1} màu/biến thể)" if c.get("variants", 1) > 1 else ""
+        if c.get("striking"):
+            extra += " (sắp lên top: ưu tiên link tới)"
         lines.append(f"| {i} | {c['type']} | {_cell(c['title'])}{extra} | {c['url']} | "
                      f"{_cell('; '.join(c['anchor_hints']))} |")
     if not res["candidates"]:
@@ -1328,6 +1373,11 @@ def find_candidates(draft: Draft, site: Site, forms_cache: Optional[dict] = None
                 kind = forms.match(sp.words)
                 if kind is None:
                     continue
+                if kind == "gsc":
+                    # verbatim only: same words, same marks, as Google saw the query
+                    if normalize(sp.text).lower() != forms.gsc_text:
+                        continue
+                    kind = "partial"
                 if (row.get("type") == "page" and kind != "exact"
                         and forms.cover.get(sp.words, 1.0) <= 0.5):
                     continue                       # a page is linked by most of its name
@@ -1343,7 +1393,8 @@ def find_candidates(draft: Draft, site: Site, forms_cache: Optional[dict] = None
                 if key != "exact" and ctx < MIN_CONTEXT_X * site.rare:
                     continue                       # a listed anchor is its own evidence
                 # an exact anchor is the last resort: only 1 in 10 links may be one
-                best.score = round((ctx + 2 * best.quality) * _priority(row) * (0.9 if key == "exact" else 1.0), 3)
+                best.score = round((ctx + 2 * best.quality) * _priority(row) * striking_boost(row)
+                                   * (0.9 if key == "exact" else 1.0), 3)
                 cands.append(best)
     cands.sort(key=lambda c: (-c.score, c.row["url"], c.block))
     return cands
@@ -1684,7 +1735,7 @@ def reverse_suggestions(site: Site, post: dict, top: int = 8) -> list:
         shared = [t for t in new_w if t in doc]
         s = sum(site.idf.get(t, 0.0) * min(new_w[t], doc[t]) * (1.0 + 0.5 * (len(t.split()) - 1)) for t in shared)
         if s > 0:
-            scored.append((s * _priority(row), row, shared))
+            scored.append((s * _priority(row) * striking_boost(row), row, shared))
     scored.sort(key=lambda x: (-x[0], x[1]["url"]))
     out = []
     used_anchors: set = set()

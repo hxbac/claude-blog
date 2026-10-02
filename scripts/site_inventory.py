@@ -12,6 +12,9 @@ Usage:
     python3 scripts/site_inventory.py gaps [--site d] [--top N] [--volumes] [--json]
     python3 scripts/site_inventory.py stale [--site d] [--top N] [--drafts DIR] [--json]
     python3 scripts/site_inventory.py overlap [--site d] [--top N] [--threshold T] [--drafts DIR]
+    python3 scripts/site_inventory.py gsc-sync [--site d] [--days 90] [--include-subdomains]
+    python3 scripts/site_inventory.py opportunities [--site d] [--days 90] [--top 20] [--min-impressions 5] [--json]
+    python3 scripts/site_inventory.py index-check <url>... | --recent N [--site d] [--json]
     python3 scripts/site_inventory.py list-sites
     python3 scripts/site_inventory.py status [--site d]
 
@@ -31,6 +34,11 @@ Rules this module keeps:
   Haravan ``/products.json``, Blogger feed), sitemap plus page HTML second.
 * Public addresses only, http and https only, no redirect to another host,
   robots.txt honoured, one request at a time with a delay.
+* Search Console (``gsc-sync``, ``opportunities``, ``index-check``) is read
+  only and goes through ``skills/blog-google/scripts/run.py`` as a subprocess
+  with a timeout, so this file stays standard library. ``gsc-sync`` writes only
+  the ``gsc_*`` generated columns, never an editable one. Without a
+  connection the inventory is left exactly as it was.
 * Fetched content is untrusted data. Only extracted fields are stored, each
   truncated; nothing in it is ever treated as an instruction.
 
@@ -55,6 +63,7 @@ import math
 import os
 import re
 import socket
+import subprocess
 import sys
 import time
 import tomllib
@@ -65,7 +74,7 @@ import urllib.robotparser
 import xml.etree.ElementTree as ET
 from collections import Counter
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Callable, Optional
@@ -93,8 +102,9 @@ SHOP_PAGE_SIZE = 100
 MAX_REDIRECTS = 3
 MAX_SITEMAP_DEPTH = 3
 
+GSC_COLUMNS = ["gsc_clicks", "gsc_impressions", "gsc_position", "gsc_top_query", "gsc_synced_at"]
 GENERATED = ["url", "type", "title", "h1", "description", "category", "price",
-             "in_stock", "lastmod", "lang", "source", "fetched_at"]
+             "in_stock", "lastmod", "lang", "source", "fetched_at"] + GSC_COLUMNS
 EDITABLE = ["focus_keyword", "anchors", "priority", "exclude", "notes"]
 COLUMNS = GENERATED + EDITABLE
 TYPES = ("post", "product", "category", "page", "tag", "other", "gone")
@@ -102,11 +112,13 @@ TYPES = ("post", "product", "category", "page", "tag", "other", "gone")
 FIELD_LIMITS = {"url": 500, "title": 200, "h1": 200, "description": 400,
                 "category": 150, "price": 40, "in_stock": 8, "lastmod": 40,
                 "lang": 12, "source": 24, "fetched_at": 25,
+                "gsc_clicks": 12, "gsc_impressions": 12, "gsc_position": 8,
+                "gsc_top_query": 200, "gsc_synced_at": 25,
                 "focus_keyword": 120, "anchors": 400, "priority": 2,
                 "exclude": 8, "notes": 400, "type": 12}
 
 # Rows added by hand are not in any sitemap; a refresh must not call them gone.
-MANUAL_SOURCES = ("manual", "csv")
+MANUAL_SOURCES = ("manual", "csv", "gsc")
 
 
 class InventoryError(Exception):
@@ -2309,6 +2321,459 @@ def cmd_overlap(args, out=print) -> int:
 # CLI
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Search Console (Phase U): gsc-sync, opportunities, index-check
+# ---------------------------------------------------------------------------
+#
+# Everything here is read only. The Search Console calls run in a subprocess
+# (skills/blog-google/scripts/run.py) so this file stays standard library, and
+# any failure leaves inventory.csv exactly as it was.
+#
+# Which pages belong to a site. A domain property (``sc-domain:naneuron.com``)
+# covers every subdomain, but a subdomain such as ``slidepro.naneuron.com`` is
+# usually another product with its own site folder. Decision: a site owns only
+# the pages whose host equals its base_url host (``www.`` ignored). Pages of a
+# sibling subdomain are counted and reported, never added, unless the marketer
+# passes ``--include-subdomains``. http/https, ``www.``, a trailing slash,
+# tracking parameters and percent-encoding never make two URLs different
+# (``gsc_key``).
+
+GSC_TIMEOUT = 240
+GSC_LAG_DAYS = 3
+GSC_ROW_LIMIT = 25000
+STRIKING_MIN_POS, STRIKING_MAX_POS = 5.0, 20.0
+INDEX_RECENT_MAX = 20
+
+MSG_GSC_MISSING = (
+    "Chưa kết nối được Search Console, nên danh sách web được giữ nguyên, không đổi gì. "
+    "Nhờ bạn kỹ thuật đặt GSC_PROPERTY và khoá tài khoản dịch vụ trong "
+    "~/.config/ai-content/credentials.env (kiểm tra bằng: python3 scripts/env_file.py --check), "
+    "hoặc ghi gsc_property vào site.toml.")
+
+
+def gsc_key(url: str) -> str:
+    """Key that makes the same page from GSC and from the inventory equal:
+    ``norm_url`` plus https, no ``www.``, decoded percent-escapes."""
+    n = urllib.parse.urlsplit(norm_url(url))
+    netloc = n.netloc[4:] if n.netloc.startswith("www.") else n.netloc
+    return urllib.parse.urlunsplit(("https", netloc, urllib.parse.unquote(n.path), n.query, ""))
+
+
+def property_host(prop: str) -> str:
+    prop = (prop or "").strip()
+    if prop.startswith("sc-domain:"):
+        return host_key(prop[len("sc-domain:"):])
+    return host_key(urllib.parse.urlparse(prop).hostname or "")
+
+
+def property_covers(prop: str, host: str) -> bool:
+    """A domain property covers its subdomains; a URL-prefix property one host."""
+    ph, h = property_host(prop), host_key(host)
+    if not ph or not h:
+        return False
+    if (prop or "").strip().startswith("sc-domain:"):
+        return h == ph or h.endswith("." + ph)
+    return h == ph
+
+
+def _load_credentials() -> None:
+    try:
+        import env_file
+        env_file.load()
+    except Exception:
+        pass
+
+
+def gsc_property_for(cfg: dict) -> str:
+    """``gsc_property`` from site.toml, else ``GSC_PROPERTY`` when it covers the
+    site's host. Empty string when neither applies."""
+    prop = str(cfg.get("gsc_property") or "").strip()
+    if prop:
+        return prop
+    _load_credentials()
+    env = os.environ.get("GSC_PROPERTY", "").strip()
+    host = urllib.parse.urlparse(cfg.get("base_url", "")).hostname or ""
+    return env if env and property_covers(env, host) else ""
+
+
+def require_property(cfg: dict) -> str:
+    prop = gsc_property_for(cfg)
+    if prop:
+        return prop
+    if os.environ.get("GSC_PROPERTY", "").strip():
+        raise InventoryError(
+            f"GSC_PROPERTY ({os.environ['GSC_PROPERTY'].strip()}) không bao gồm web {cfg.get('base_url', '')}. "
+            "Ghi đúng property vào site.toml (gsc_property = \"sc-domain:ten-mien.com\"). "
+            "Danh sách web được giữ nguyên.")
+    raise InventoryError(MSG_GSC_MISSING)
+
+
+def gsc_runner() -> Path:
+    here = Path(__file__).resolve().parent
+    cands = []
+    env = os.environ.get("CLAUDE_BLOG_GSC_RUNNER", "").strip()
+    if env:
+        cands.append(Path(env))
+    cands += [here.parent / "skills" / "blog-google" / "scripts" / "run.py",
+              Path.home() / ".claude" / "skills" / "blog-google" / "scripts" / "run.py"]
+    for c in cands:
+        if c.is_file():
+            return c
+    raise InventoryError(
+        "Không thấy skill blog-google (skills/blog-google/scripts/run.py), nên chưa đọc được Search Console. "
+        "Danh sách web được giữ nguyên. Nhờ bạn kỹ thuật cài lại claude-blog.")
+
+
+def _parse_json_output(text: str):
+    """The runner may print setup lines before the JSON; take the first object."""
+    dec = json.JSONDecoder()
+    for m in re.finditer(r"^\s*\{", text or "", re.M):
+        try:
+            return dec.raw_decode(text[m.end() - 1:])[0]
+        except ValueError:
+            continue
+    return None
+
+
+def _gsc_error_vi(msg: str) -> str:
+    low = (msg or "").lower()
+    if "could not build gsc service" in low or "credentials" in low:
+        return MSG_GSC_MISSING
+    if "permission denied" in low:
+        return ("Search Console từ chối quyền truy cập property này. Thêm email tài khoản dịch vụ vào "
+                "Search Console > Cài đặt > Người dùng và quyền. Danh sách web được giữ nguyên.")
+    if "not found" in low:
+        return ("Search Console không thấy property này. Dùng sc-domain:ten-mien.com cho property tên miền "
+                "hoặc https://ten-mien.com/ cho property tiền tố URL. Danh sách web được giữ nguyên.")
+    return f"Search Console báo lỗi: {msg}. Danh sách web được giữ nguyên."
+
+
+def run_google_script(script: str, args: list, timeout: int = GSC_TIMEOUT):
+    """Run a blog-google script through run.py and return its parsed JSON.
+    Raises InventoryError (Vietnamese) on any failure; never returns partial data."""
+    cmd = [sys.executable, str(gsc_runner()), script] + [str(a) for a in args] + ["--json"]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise InventoryError(
+            f"Search Console không trả lời sau {timeout} giây. Thử lại sau; danh sách web được giữ nguyên.")
+    except OSError as exc:
+        raise InventoryError(f"Không chạy được skill blog-google ({exc}). Danh sách web được giữ nguyên.")
+    data = _parse_json_output(proc.stdout)
+    if not isinstance(data, dict):
+        tail = (proc.stderr or "").strip().splitlines()[-1:] or [""]
+        raise InventoryError(_gsc_error_vi(tail[0] or "không đọc được kết quả"))
+    if data.get("error"):
+        raise InventoryError(_gsc_error_vi(str(data["error"])))
+    return data
+
+
+def gsc_window(days: int, today: Optional[date] = None) -> tuple:
+    end = (today or date.today()) - timedelta(days=GSC_LAG_DAYS)
+    return (end - timedelta(days=max(1, days))).isoformat(), end.isoformat()
+
+
+def gsc_rows(prop: str, dimensions: str, start: str, end: str, runner=None) -> list:
+    call = runner or run_google_script
+    data = call("gsc_query", ["--property", prop, "--dimensions", dimensions,
+                              "--start-date", start, "--end-date", end, "--limit", GSC_ROW_LIMIT])
+    return data.get("rows") or []
+
+
+def _row_keys(r: dict, n: int) -> list:
+    keys = r.get("keys") or []
+    return keys if len(keys) >= n else []
+
+
+def in_scope(url: str, base_host: str, include_subdomains: bool = False) -> bool:
+    host = host_key(urllib.parse.urlparse(url).hostname or "")
+    if not host:
+        return False
+    return host == base_host or (include_subdomains and host.endswith("." + base_host))
+
+
+def aggregate_gsc(page_rows: list, query_rows: list, base_host: str,
+                  include_subdomains: bool = False) -> tuple:
+    """-> (pages by gsc_key, skipped hosts Counter). Several GSC URLs that
+    normalise to one page are merged: clicks and impressions add up, position
+    is weighted by impressions. The top query is the one with most clicks, then
+    most impressions."""
+    base_host = host_key(base_host)
+    pages: dict = {}
+    skipped: Counter = Counter()
+    for r in page_rows:
+        keys = _row_keys(r, 1)
+        url = str(r.get("page") or (keys[0] if keys else ""))
+        if not url:
+            continue
+        if not in_scope(url, base_host, include_subdomains):
+            skipped[host_key(urllib.parse.urlparse(url).hostname or "?")] += 1
+            continue
+        k = gsc_key(url)
+        p = pages.setdefault(k, {"url": url, "clicks": 0.0, "impressions": 0.0, "pos_w": 0.0,
+                                 "top_query": "", "_best": (-1.0, -1.0)})
+        imp = float(r.get("impressions") or 0)
+        p["clicks"] += float(r.get("clicks") or 0)
+        p["impressions"] += imp
+        p["pos_w"] += float(r.get("position") or 0) * imp
+    for r in query_rows:
+        keys = _row_keys(r, 2)
+        if not keys:
+            continue
+        k = gsc_key(keys[0])
+        p = pages.get(k)
+        if p is None:
+            continue
+        score = (float(r.get("clicks") or 0), float(r.get("impressions") or 0))
+        if score > p["_best"]:
+            p["_best"] = score
+            p["top_query"] = clean_text(keys[1], FIELD_LIMITS["gsc_top_query"])
+    for p in pages.values():
+        p["position"] = round(p["pos_w"] / p["impressions"], 1) if p["impressions"] else 0.0
+        p.pop("_best", None)
+        p.pop("pos_w", None)
+    return pages, skipped
+
+
+def _num_text(x: float) -> str:
+    return str(int(x)) if float(x).is_integer() else str(round(x, 2))
+
+
+def apply_gsc(rows: list, pages: dict, now: str) -> tuple:
+    """Write the GSC columns into ``rows`` (a copy) and add the pages GSC knows
+    and the inventory does not as ``source=gsc``. Only columns in GSC_COLUMNS
+    change on an existing row; editable columns are never read or written.
+    -> (rows, with_data, without_data, added)."""
+    out = [dict(r) for r in rows]
+    seen = set()
+    with_data = without = 0
+    for r in out:
+        if not r.get("url"):
+            continue
+        k = gsc_key(r["url"])
+        seen.add(k)
+        p = pages.get(k)
+        if p:
+            r["gsc_clicks"] = _num_text(p["clicks"])
+            r["gsc_impressions"] = _num_text(p["impressions"])
+            r["gsc_position"] = _num_text(p["position"]) if p["impressions"] else ""
+            r["gsc_top_query"] = p["top_query"]
+            with_data += 1
+        else:
+            r["gsc_clicks"], r["gsc_impressions"] = "0", "0"
+            r["gsc_position"] = r["gsc_top_query"] = ""
+            without += 1
+        r["gsc_synced_at"] = now
+    added = 0
+    for k, p in pages.items():
+        if k in seen:
+            continue
+        row = blank_row()
+        row.update({"url": p["url"], "type": classify(p["url"]), "source": "gsc", "fetched_at": now,
+                    "gsc_clicks": _num_text(p["clicks"]), "gsc_impressions": _num_text(p["impressions"]),
+                    "gsc_position": _num_text(p["position"]) if p["impressions"] else "",
+                    "gsc_top_query": p["top_query"], "gsc_synced_at": now})
+        out.append(clamp_row(row))
+        seen.add(k)
+        added += 1
+        with_data += 1
+    return out, with_data, without, added
+
+
+def cmd_gsc_sync(args, out=print, runner=None) -> int:
+    site_dir = resolve_site(args.site)
+    cfg = load_site_config(site_dir)
+    prop = require_property(cfg)
+    base_host = host_key(urllib.parse.urlparse(cfg.get("base_url", "")).hostname or site_dir.name)
+    start, end = gsc_window(args.days)
+    page_rows = gsc_rows(prop, "page", start, end, runner)
+    query_rows = gsc_rows(prop, "page,query", start, end, runner) if page_rows else []
+    pages, skipped = aggregate_gsc(page_rows, query_rows, base_host, args.include_subdomains)
+    merged, with_data, without, added = apply_gsc(load_inventory(site_dir), pages, now_iso())
+    write_csv_rows(site_dir / "inventory.csv", merged)
+    write_inventory_json(site_dir, merged)
+    out(f"Đã đồng bộ Search Console cho {site_dir.name} ({prop}), từ {start} đến {end}.")
+    out(f"  {with_data} trang có dữ liệu (lượt nhấp, hiển thị, vị trí, từ khoá chính); "
+        f"{without} trang trong danh sách chưa có lượt hiển thị nào; {added} trang mới thêm (source=gsc).")
+    if skipped:
+        names = ", ".join(f"{h} ({n})" for h, n in sorted(skipped.items()))
+        out(f"  Bỏ qua trang của tên miền phụ khác: {names}. Property tên miền gồm cả tên miền phụ, "
+            f"nhưng mỗi web có danh sách riêng; muốn gộp thì thêm --include-subdomains.")
+    if not page_rows:
+        out("  Search Console chưa có dòng dữ liệu nào trong khoảng này; các cột gsc_ được đặt về 0.")
+    out("  Chỉ các cột gsc_ được ghi lại; các cột bạn sửa tay (focus_keyword, anchors, priority, exclude, notes) giữ nguyên.")
+    return 0
+
+
+# ---- opportunities ---------------------------------------------------------
+
+OPP_MIN_IMPRESSIONS = 5
+_QSTOP = _STOP_TOKENS | frozenset({"gi", "nao", "the", "nhu", "o", "de", "voi", "trong"})
+
+
+def _query_tokens(query: str) -> list:
+    return [w for w in _WORD_RE.findall(to_ascii(normalize(query)).lower()) if w not in _QSTOP]
+
+
+def on_topic(query: str, row: Optional[dict]) -> bool:
+    """At least 60% of the query's words appear in the page's title, h1,
+    keyword, anchors, description, category or slug."""
+    if not row:
+        return False
+    toks = _query_tokens(query)
+    if not toks:
+        return False
+    have = {t for t in row_weights(row) if " " not in t}
+    return sum(t in have for t in toks) / len(toks) >= 0.6
+
+
+def opportunity_action(position: float, row: Optional[dict], query: str) -> str:
+    if row is None:
+        return "Trang này chưa có trong danh sách web: chạy gsc-sync hoặc refresh, rồi xem lại"
+    if not on_topic(query, row):
+        return "Viết bài mới cho từ khoá này (trang đang xếp hạng chưa nói đúng về nó)"
+    if position <= 10:
+        return "Thêm link nội bộ trỏ tới trang này và chỉnh tiêu đề, mô tả cho khớp từ khoá"
+    return "Làm mới bài (mở rộng nội dung, cập nhật tiêu đề) rồi thêm link nội bộ trỏ tới"
+
+
+def find_opportunities(rows: list, query_rows: list, base_host: str, *, min_impressions: int = OPP_MIN_IMPRESSIONS,
+                       include_subdomains: bool = False, top: int = 20) -> dict:
+    """Queries at position 5 to 20, one line per (query, page), built only from
+    the Search Console rows passed in."""
+    by_key = {gsc_key(r["url"]): r for r in rows if r.get("url")}
+    items = []
+    for r in query_rows:
+        keys = _row_keys(r, 2)
+        if not keys:
+            continue
+        page, query = keys[0], keys[1]
+        if not in_scope(page, base_host, include_subdomains):
+            continue
+        pos, imp = float(r.get("position") or 0), float(r.get("impressions") or 0)
+        if not (STRIKING_MIN_POS <= pos <= STRIKING_MAX_POS) or imp < min_impressions:
+            continue
+        row = by_key.get(gsc_key(page))
+        items.append({"query": query, "page": page, "position": round(pos, 1), "impressions": int(imp),
+                      "clicks": int(r.get("clicks") or 0), "title": (row or {}).get("title", ""),
+                      "action": opportunity_action(pos, row, query)})
+    items.sort(key=lambda d: (-d["impressions"], d["position"], d["query"]))
+    return {"total": len(items), "items": items[: max(0, top)]}
+
+
+def render_opportunities(res: dict, start: str, end: str, min_impressions: int) -> str:
+    if not res["items"]:
+        return (f"Chưa có từ khoá nào ở vị trí 5 đến 20 với ít nhất {min_impressions} lượt hiển thị "
+                f"trong {start} đến {end}. Search Console chưa có đủ dữ liệu, hoặc web chưa có từ khoá nào "
+                "ở gần top. Không có gì để gợi ý, và công cụ không tự bịa từ khoá.")
+    lines = [f"## Từ khoá sắp lên top ({start} đến {end})", "",
+             "| Từ khoá | Vị trí | Hiển thị | Nhấp | Trang đang xếp hạng | Nên làm |",
+             "| --- | --- | --- | --- | --- | --- |"]
+    for d in res["items"]:
+        lines.append(f"| {d['query'].replace('|', '/')} | {d['position']} | {d['impressions']} | {d['clicks']} | "
+                     f"{d['page']} | {d['action']} |")
+    if res["total"] > len(res["items"]):
+        lines += ["", f"Còn {res['total'] - len(res['items'])} từ khoá nữa; dùng --top để xem thêm."]
+    lines += ["", "Số liệu lấy trực tiếp từ Search Console; vị trí là trung bình, không phải thứ hạng chắc chắn."]
+    return "\n".join(lines)
+
+
+def cmd_opportunities(args, out=print, runner=None) -> int:
+    site_dir = resolve_site(args.site)
+    cfg = load_site_config(site_dir)
+    prop = require_property(cfg)
+    base_host = host_key(urllib.parse.urlparse(cfg.get("base_url", "")).hostname or site_dir.name)
+    start, end = gsc_window(args.days)
+    query_rows = gsc_rows(prop, "page,query", start, end, runner)
+    res = find_opportunities(load_inventory(site_dir), query_rows, base_host,
+                             min_impressions=args.min_impressions, top=args.top,
+                             include_subdomains=args.include_subdomains)
+    if args.json:
+        out(json.dumps(dict(res, property=prop, start=start, end=end), ensure_ascii=False, indent=1))
+    else:
+        out(render_opportunities(res, start, end, args.min_impressions))
+    return 0
+
+
+# ---- index-check -----------------------------------------------------------
+
+_VERDICT_VI = {
+    "PASS": "Đã được Google lập chỉ mục",
+    "NEUTRAL": "Chưa được Google lập chỉ mục (Google đã biết hoặc chưa biết trang này, nhưng chưa đưa vào kết quả tìm kiếm)",
+    "PARTIAL": "Chỉ lập chỉ mục một phần",
+    "FAIL": "Không được lập chỉ mục (Google gặp vấn đề với trang này)",
+}
+
+
+def _crawl_date(value: Optional[str]) -> str:
+    m = re.match(r"(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2}))?", value or "")
+    return f"{m.group(1)} {m.group(2) or ''}".strip() if m else "chưa có"
+
+
+def explain_inspection(res: dict) -> dict:
+    """Vietnamese reading of one gsc_inspect result."""
+    if res.get("error"):
+        return {"url": res.get("url", ""), "ok": False, "text": f"Không kiểm tra được: {res['error']}"}
+    idx = res.get("index_status") or {}
+    can = res.get("canonical") or {}
+    verdict = res.get("verdict") or "VERDICT_UNSPECIFIED"
+    head = _VERDICT_VI.get(verdict, "Google chưa trả kết luận rõ ràng cho trang này")
+    lines = [head]
+    if idx.get("coverage_state"):
+        lines.append(f"Google ghi: {idx['coverage_state']}")
+    lines.append(f"Lần Google đọc trang gần nhất: {_crawl_date(idx.get('last_crawl_time'))}")
+    g, u = can.get("google_canonical"), can.get("user_canonical")
+    if g or u:
+        lines.append(f"Canonical Google chọn: {g or 'chưa có'}; canonical trang khai báo: {u or 'chưa có'}")
+        if g and u and g != u:
+            lines.append("Hai canonical khác nhau: Google đang coi một trang khác là bản chính. Kiểm tra lại thẻ canonical.")
+    if verdict == "NEUTRAL":
+        lines.append("Nếu bài mới xuất bản dưới vài ngày thì chờ thêm; sau đó vẫn vậy thì nhờ bạn kỹ thuật kiểm tra sitemap và liên kết nội bộ.")
+    return {"url": res.get("url", ""), "ok": verdict == "PASS", "verdict": verdict, "text": "\n  ".join(lines)}
+
+
+def recent_post_urls(rows: list, n: int) -> list:
+    posts = [r for r in rows if r.get("type") == "post" and r.get("url")
+             and (r.get("exclude") or "").strip().lower() not in ("yes", "y", "true", "1", "x")]
+    posts.sort(key=lambda r: (r.get("lastmod") or "", r.get("fetched_at") or ""), reverse=True)
+    return [r["url"] for r in posts[: max(0, n)]]
+
+
+def cmd_index_check(args, out=print, runner=None, sleep=time.sleep) -> int:
+    site_dir = resolve_site(args.site)
+    cfg = load_site_config(site_dir)
+    prop = require_property(cfg)
+    urls = list(args.urls or [])
+    if args.recent:
+        urls += [u for u in recent_post_urls(load_inventory(site_dir), min(args.recent, INDEX_RECENT_MAX)) if u not in urls]
+    if not urls:
+        raise InventoryError("Cho ít nhất một địa chỉ trang, hoặc dùng --recent N cho các bài mới nhất.")
+    if len(urls) > INDEX_RECENT_MAX:
+        raise InventoryError(f"Mỗi lần kiểm tra tối đa {INDEX_RECENT_MAX} địa chỉ (Google giới hạn lượt kiểm tra mỗi ngày).")
+    call = runner or run_google_script
+    results = []
+    for i, url in enumerate(urls):
+        if not url.lower().startswith(("http://", "https://")):
+            results.append({"url": url, "ok": False, "text": "Không phải địa chỉ web đầy đủ (cần bắt đầu bằng https://)."})
+            continue
+        host = urllib.parse.urlparse(url).hostname or ""
+        if not property_covers(prop, host):
+            results.append({"url": url, "ok": False,
+                            "text": f"Địa chỉ này nằm ngoài property {prop}, Search Console không kiểm tra được."})
+            continue
+        if i:
+            sleep(1.0)
+        res = call("gsc_inspect", [url, "--site-url", prop])
+        results.append(explain_inspection(res))
+    if args.json:
+        out(json.dumps(results, ensure_ascii=False, indent=1))
+        return 0
+    for r in results:
+        out(f"{r['url']}\n  {r['text']}\n")
+    out("Chỉ đọc kết quả từ Google; công cụ này không gửi hay yêu cầu lập chỉ mục bất cứ thứ gì.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -2371,6 +2836,26 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--drafts")
     s.add_argument("--json", action="store_true")
 
+    s = sub.add_parser("gsc-sync", help="Kéo lượt nhấp, hiển thị, vị trí từ Search Console vào danh sách (chỉ đọc)")
+    s.add_argument("--site")
+    s.add_argument("--days", type=int, default=90)
+    s.add_argument("--include-subdomains", action="store_true", dest="include_subdomains",
+                   help="Tính cả trang của tên miền phụ (mặc định chỉ đúng tên miền của web)")
+
+    s = sub.add_parser("opportunities", help="Từ khoá đang ở vị trí 5 đến 20 và việc nên làm (từ Search Console)")
+    s.add_argument("--site")
+    s.add_argument("--days", type=int, default=90)
+    s.add_argument("--top", type=int, default=20)
+    s.add_argument("--min-impressions", type=int, default=OPP_MIN_IMPRESSIONS, dest="min_impressions")
+    s.add_argument("--include-subdomains", action="store_true", dest="include_subdomains")
+    s.add_argument("--json", action="store_true")
+
+    s = sub.add_parser("index-check", help="Google đã lập chỉ mục trang chưa (chỉ đọc, không gửi gì cho Google)")
+    s.add_argument("urls", nargs="*")
+    s.add_argument("--recent", type=int, default=0, help="Kiểm tra N bài mới nhất trong danh sách")
+    s.add_argument("--site")
+    s.add_argument("--json", action="store_true")
+
     sub.add_parser("list-sites", help="Các web đã cấu hình")
     s = sub.add_parser("status", help="Số dòng theo loại và lần cập nhật gần nhất")
     s.add_argument("--site")
@@ -2381,7 +2866,8 @@ def main(argv: Optional[list] = None) -> int:
     args = build_parser().parse_args(argv)
     handlers = {"init": cmd_init, "refresh": cmd_refresh, "import-csv": cmd_import_csv,
                 "add": cmd_add, "details": cmd_details, "search": cmd_search, "gaps": cmd_gaps, "stale": cmd_stale,
-                "overlap": cmd_overlap, "list-sites": cmd_list_sites, "status": cmd_status}
+                "overlap": cmd_overlap, "gsc-sync": cmd_gsc_sync,
+                "opportunities": cmd_opportunities, "index-check": cmd_index_check, "list-sites": cmd_list_sites, "status": cmd_status}
     try:
         return handlers[args.cmd](args)
     except InventoryError as exc:

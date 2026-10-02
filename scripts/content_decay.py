@@ -12,6 +12,14 @@ Optional live export path:
 Usage:
     python3 content_decay.py current.json previous.json
     python3 content_decay.py current.json previous.json --threshold 0.20 --metric clicks
+    python3 content_decay.py --live [--property sc-domain:example.com] [--days 90]
+
+Short history. A site connected to Search Console recently has no previous
+period yet. Instead of an error, the report says in Vietnamese since which date
+Search Console has data and when a comparison becomes possible. With ``--live``
+it falls back from the quarter (``--days``) to 28 days against the 28 days
+before when both of those periods have rows. Nothing is guessed: with no
+previous rows there is no decay figure.
 """
 
 from __future__ import annotations
@@ -24,6 +32,7 @@ import os
 import stat
 import sys
 import tempfile
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +47,10 @@ MAX_EXPORT_ROWS = 100_000
 
 class ContentDecayError(ValueError):
     """Raised when an export cannot be used for content decay analysis."""
+
+
+class EmptyExportError(ContentDecayError):
+    """An export parsed fine but holds no rows (a period with no data)."""
 
 
 def _reject_json_constant(value: str) -> None:
@@ -132,7 +145,7 @@ def load_export(path: str | Path) -> list[dict[str, Any]]:
         )
 
     if not rows:
-        raise ContentDecayError(f"{export_path} contains no rows.")
+        raise EmptyExportError(f"{export_path} contains no rows.")
     if len(rows) > MAX_EXPORT_ROWS:
         raise ContentDecayError(f"{export_path} row count exceeds cap ({len(rows)} > {MAX_EXPORT_ROWS}).")
 
@@ -403,13 +416,110 @@ def write_output(text: str, output_path: str | None) -> None:
         print(text, end="")
 
 
+SHORT_HISTORY_DAYS = 28
+GSC_LAG_DAYS = 3
+HISTORY_LOOKBACK_DAYS = 500
+LOW_DATA_TOTAL = 30
+
+
+def short_history_message(first_data_date: str | None, *, period_days: int = SHORT_HISTORY_DAYS) -> str:
+    """Vietnamese explanation for "the previous period has no rows"."""
+    if first_data_date:
+        try:
+            ready = (date.fromisoformat(first_data_date) + timedelta(days=2 * period_days)).isoformat()
+            tail = (f" Khi Search Console có đủ {2 * period_days} ngày dữ liệu (khoảng {ready}) thì so sánh "
+                    f"{period_days} ngày với {period_days} ngày liền trước sẽ chạy được.")
+        except ValueError:
+            tail = ""
+        since = f"Search Console chỉ có dữ liệu của web này từ ngày {first_data_date}"
+    else:
+        tail = ""
+        since = "Search Console chưa có dữ liệu cho kỳ trước"
+    return (f"{since}, nên chưa có kỳ trước để so sánh. Chưa thể nói bài nào đang tụt traffic: "
+            f"không có số liệu thì không có con số giảm." + tail)
+
+
+def short_history_report(first_data_date: str | None, current_pages: int = 0) -> dict[str, Any]:
+    return {
+        "status": "short_history",
+        "first_data_date": first_data_date,
+        "current_pages": current_pages,
+        "message": short_history_message(first_data_date),
+        "decays": [],
+    }
+
+
+def live_rows(prop: str, dimensions: str, start: str, end: str) -> list[dict[str, Any]]:
+    """Rows from Search Console through blog-google (a subprocess, mocked in tests)."""
+    from site_inventory import run_google_script  # noqa: E402
+
+    data = run_google_script("gsc_query", ["--property", prop, "--dimensions", dimensions,
+                                          "--start-date", start, "--end-date", end, "--limit", 25000])
+    return data.get("rows") or []
+
+
+def first_data_date_of(prop: str, today: date | None = None) -> str | None:
+    end = (today or date.today()) - timedelta(days=GSC_LAG_DAYS)
+    start = end - timedelta(days=HISTORY_LOOKBACK_DAYS)
+    dates = []
+    for row in live_rows(prop, "date", start.isoformat(), end.isoformat()):
+        keys = row.get("keys") or []
+        value = row.get("date") or (keys[0] if keys else "")
+        if value:
+            dates.append(str(value))
+    return min(dates) if dates else None
+
+
+def analyze_live(prop: str, days: int, threshold: float, metric: str,
+                 today: date | None = None) -> dict[str, Any]:
+    """Quarter against the quarter before; 28 against 28 when only that has
+    rows in both periods; otherwise the Vietnamese short-history report."""
+    end = (today or date.today()) - timedelta(days=GSC_LAG_DAYS)
+    first = first_data_date_of(prop, today)
+    tried = []
+    for span in dict.fromkeys([days, SHORT_HISTORY_DAYS]):
+        cur_end, cur_start = end, end - timedelta(days=span - 1)
+        prev_end = cur_start - timedelta(days=1)
+        prev_start = prev_end - timedelta(days=span - 1)
+        current = live_rows(prop, "page", cur_start.isoformat(), cur_end.isoformat())
+        previous = live_rows(prop, "page", prev_start.isoformat(), prev_end.isoformat())
+        tried.append(span)
+        if current and previous:
+            report = analyze_decay(current, previous, threshold=threshold, metric=metric)
+            report["status"] = "ok"
+            report["period_days"] = span
+            report["first_data_date"] = first
+            report["current_range"] = [cur_start.isoformat(), cur_end.isoformat()]
+            report["previous_range"] = [prev_start.isoformat(), prev_end.isoformat()]
+            if span != days:
+                report["message"] = (f"Chưa đủ lịch sử cho {days} ngày, nên so sánh {span} ngày gần nhất với "
+                                     f"{span} ngày liền trước (Search Console có dữ liệu từ {first}).")
+            total = report["summary"]["total_previous_metric"]
+            if total < LOW_DATA_TOTAL:
+                note = (f"Kỳ trước chỉ có {total:g} {metric} trong tất cả các trang, quá ít để kết luận: "
+                        "coi các dòng dưới đây là chỗ nên xem lại, chưa phải bài chắc chắn tụt.")
+                report["message"] = (report["message"] + " " if report.get("message") else "") + note
+            return report
+    return short_history_report(first, current_pages=len(aggregate_pages(current)) if current else 0)
+
+
+def format_short_history(report: dict[str, Any]) -> str:
+    return report["message"] + "\n"
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the command line parser."""
     parser = argparse.ArgumentParser(
         description="Detect quarter-over-quarter content decay from GSC exports."
     )
-    parser.add_argument("current", help="Current-period GSC performance export")
-    parser.add_argument("previous", help="Previous-period GSC performance export")
+    parser.add_argument("current", nargs="?", help="Current-period GSC performance export")
+    parser.add_argument("previous", nargs="?", help="Previous-period GSC performance export")
+    parser.add_argument("--live", action="store_true",
+                        help="Read both periods from Search Console (needs GSC_PROPERTY or --property)")
+    parser.add_argument("--property", help="Search Console property for --live")
+    parser.add_argument("--days", type=int, default=90, help="Period length for --live, default 90")
+    parser.add_argument("--first-data-date",
+                        help="First date Search Console has data (YYYY-MM-DD); named in the short-history message")
     parser.add_argument(
         "--threshold",
         type=float,
@@ -432,28 +542,63 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _run_live(args: argparse.Namespace) -> dict[str, Any]:
+    from site_inventory import InventoryError, _load_credentials  # noqa: E402
+
+    prop = args.property
+    if not prop:
+        _load_credentials()
+        prop = os.environ.get("GSC_PROPERTY", "").strip()
+    if not prop:
+        raise ContentDecayError(
+            "Chưa có property Search Console. Đặt GSC_PROPERTY trong ~/.config/ai-content/credentials.env "
+            "hoặc dùng --property sc-domain:ten-mien.com.")
+    try:
+        return analyze_live(prop, args.days, args.threshold, args.metric)
+    except InventoryError as exc:
+        raise ContentDecayError(str(exc)) from exc
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the content decay CLI."""
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    try:
-        current_rows = load_export(args.current)
-        previous_rows = load_export(args.previous)
-        report = analyze_decay(
-            current_rows,
-            previous_rows,
-            threshold=args.threshold,
-            metric=args.metric,
-        )
-    except ContentDecayError as exc:
-        print(json.dumps({"error": str(exc)}, indent=2, allow_nan=False))
-        return 1
-
-    if args.format == "markdown":
-        output = format_markdown(report)
+    if args.live:
+        try:
+            report = _run_live(args)
+        except ContentDecayError as exc:
+            print(json.dumps({"error": str(exc)}, indent=2, allow_nan=False))
+            return 1
     else:
-        output = json.dumps(report, indent=2, allow_nan=False) + "\n"
+        if not args.current or not args.previous:
+            parser.error("give current.json and previous.json, or use --live")
+        try:
+            current_rows = load_export(args.current)
+            try:
+                previous_rows = load_export(args.previous)
+            except EmptyExportError:
+                report = short_history_report(args.first_data_date, len(aggregate_pages(current_rows)))
+            else:
+                report = analyze_decay(
+                    current_rows,
+                    previous_rows,
+                    threshold=args.threshold,
+                    metric=args.metric,
+                )
+        except ContentDecayError as exc:
+            print(json.dumps({"error": str(exc)}, indent=2, allow_nan=False))
+            return 1
+
+    if report.get("status") == "short_history":
+        output = (format_short_history(report) if args.format == "markdown"
+                  else json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False) + "\n")
+    elif args.format == "markdown":
+        output = format_markdown(report)
+        if report.get("message"):
+            output = report["message"] + "\n\n" + output
+    else:
+        output = json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
     try:
         write_output(output, args.output)
     except ContentDecayError as exc:

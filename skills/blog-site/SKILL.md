@@ -11,9 +11,9 @@ description: >
   site: it only fetches public pages and APIs, honours robots.txt, never logs in.
   Use when user says "client site", "site inventory", "what posts does the site
   have", "refresh site list", "add product to the list".
-  Also use when the request is written in Vietnamese, for example "đây là web của khách", "cập nhật danh sách bài trên web", "web có bài nào về", "thêm sản phẩm vào danh sách", "web khách có sản phẩm nào", "lưu danh sách bài của website", "gợi ý chủ đề cho sản phẩm chưa có bài", "bài cũ nào trên web cần cập nhật".
+  Also use when the request is written in Vietnamese, for example "đây là web của khách", "cập nhật danh sách bài trên web", "web có bài nào về", "thêm sản phẩm vào danh sách", "web khách có sản phẩm nào", "lưu danh sách bài của website", "gợi ý chủ đề cho sản phẩm chưa có bài", "bài cũ nào trên web cần cập nhật", "từ khoá nào sắp lên top", "bài này đã được Google index chưa", "kéo số liệu Search Console về danh sách".
 user-invokable: true
-argument-hint: "[init <url> | refresh | search <câu hỏi> | gaps | stale | overlap | add <url> | status]"
+argument-hint: "[init <url> | refresh | search <câu hỏi> | gaps | stale | overlap | gsc-sync | opportunities | index-check <url> | add <url> | status]"
 license: MIT
 ---
 
@@ -40,6 +40,9 @@ python3 scripts/site_inventory.py <subcommand> ...
 | "web có bài nào về máy pha cà phê không" | `search "máy pha cà phê"`; add `--type product` for "sản phẩm nào" |
 | "gợi ý chủ đề cho sản phẩm chưa có bài" / "gợi ý 10 chủ đề cho các danh mục chưa có bài" | `gaps --top 10` (thêm `--volumes` chỉ khi đã có khoá DataForSEO và họ muốn số lượt tìm) |
 | "bài cũ nào trên web cần cập nhật" | `stale --top 20` |
+| "từ khoá nào sắp lên top" | `gsc-sync` (nếu chưa chạy hôm nay), rồi `opportunities` |
+| "bài này đã được Google index chưa" / "bài mới đăng đã lên Google chưa" | `index-check <url>` hoặc `index-check --recent 5` |
+| "kéo số liệu Search Console về danh sách" | `gsc-sync` |
 | "bài nào trên web trùng từ khoá với nhau" | `overlap` (xem `blog-cannibalization`, chế độ web) |
 | "thêm sản phẩm này vào danh sách: <url>" | `add <url> --type product --fetch` |
 | "lấy thông số của mấy sản phẩm này" (trước khi viết bài top N) | `details <url> <url> ...` (chỉ đúng các URL đã chọn, tối đa 30). Chọn sản phẩm bằng `internal_links.py products --query "balo nam"` |
@@ -83,7 +86,33 @@ ask one short question: which site.
    - `overlap [--top N] [--threshold T] [--drafts DIR]`: pairs of site posts
      and drafts that target the same thing; used by the site mode of
      `blog-cannibalization`.
-4. **Summarise in Vietnamese**: how many posts, products, categories and pages,
+4. **Search Console** (only when the site is connected; read only). All three go
+   through `skills/blog-google/scripts/run.py` as a subprocess with a timeout.
+   If Search Console is missing or fails, relay the Vietnamese message the script
+   prints and stop; the inventory is left exactly as it was. The property is
+   `gsc_property` in `site.toml`, else `GSC_PROPERTY` when it covers the site's host.
+   - `gsc-sync [--days 90] [--include-subdomains]`: fills the generated columns
+     `gsc_clicks`, `gsc_impressions`, `gsc_position`, `gsc_top_query`,
+     `gsc_synced_at`. A re-sync overwrites only those columns, never an editable
+     one. Pages Search Console reports that the inventory lacks are added with
+     `source=gsc`. URLs are matched ignoring http/https, `www.`, a trailing slash,
+     tracking parameters and percent-encoding. A domain property
+     (`sc-domain:`) also covers subdomains, but a site owns only the pages on its
+     own host: a sibling subdomain such as `slidepro.naneuron.com` is counted and
+     reported, not added, unless `--include-subdomains` is given.
+   - `opportunities [--days 90] [--top 20] [--min-impressions 5] [--json]`:
+     queries at position 5 to 20 with their page, impressions and what to do
+     (add internal links, refresh the post, or write a new post when the ranking
+     page is off topic). Every line is a real Search Console row; with none, say
+     so and do not invent keywords. This answers "từ khoá nào sắp lên top".
+   - `index-check <url>... | --recent N [--json]`: Google's verdict (indexed or
+     not), the canonical Google chose against the one the page declares, and the
+     last crawl, in Vietnamese. It only reads; it never submits or requests
+     indexing (that is `blog-google`'s separate indexing step and needs an
+     explicit request). At most 20 URLs per call.
+   - After `gsc-sync`, `internal_links.py` prefers striking-distance rows
+     (position 5 to 20, 10+ impressions) as link targets (weight x1.25, never above a hand-set priority of 5) and offers `gsc_top_query` as an anchor only where a paragraph spells it out.
+5. **Summarise in Vietnamese**: how many posts, products, categories and pages,
    which platform was found, anything robots.txt blocked.
 
 ## Rules
@@ -103,7 +132,7 @@ ask one short question: which site.
 
 | File | Tracked | Purpose |
 | --- | --- | --- |
-| `sites/<domain>/site.toml` | yes | base URL, CMS, sitemaps, include and exclude patterns, brand, author, canonical pattern |
+| `sites/<domain>/site.toml` | yes | base URL, CMS, sitemaps, include and exclude patterns, brand, author, canonical pattern, optional `gsc_property` |
 | `sites/<domain>/inventory.csv` | yes | one row per URL, UTF-8 with BOM so Excel shows Vietnamese correctly |
 | `sites/<domain>/inventory.json` | no | generated copy with counts |
 | `sites/<domain>/cache/` | no | conditional-GET cache |
