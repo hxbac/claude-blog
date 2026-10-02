@@ -11,9 +11,9 @@ description: >
   site: it only fetches public pages and APIs, honours robots.txt, never logs in.
   Use when user says "client site", "site inventory", "what posts does the site
   have", "refresh site list", "add product to the list".
-  Also use when the request is written in Vietnamese, for example "đây là web của khách", "cập nhật danh sách bài trên web", "web có bài nào về", "thêm sản phẩm vào danh sách", "web khách có sản phẩm nào", "lưu danh sách bài của website".
+  Also use when the request is written in Vietnamese, for example "đây là web của khách", "cập nhật danh sách bài trên web", "web có bài nào về", "thêm sản phẩm vào danh sách", "web khách có sản phẩm nào", "lưu danh sách bài của website", "gợi ý chủ đề cho sản phẩm chưa có bài", "bài cũ nào trên web cần cập nhật".
 user-invokable: true
-argument-hint: "[init <url> | refresh | search <câu hỏi> | add <url> | status]"
+argument-hint: "[init <url> | refresh | search <câu hỏi> | gaps | stale | overlap | add <url> | status]"
 license: MIT
 ---
 
@@ -38,6 +38,9 @@ python3 scripts/site_inventory.py <subcommand> ...
 | "đây là web của khách: example.vn" | `init example.vn`, then `refresh --limit 50`, show the counts, then ask nothing more unless it failed |
 | "cập nhật danh sách bài trên web" | `refresh` (add `--no-fetch-pages` when they want it fast) |
 | "web có bài nào về máy pha cà phê không" | `search "máy pha cà phê"`; add `--type product` for "sản phẩm nào" |
+| "gợi ý chủ đề cho sản phẩm chưa có bài" / "gợi ý 10 chủ đề cho các danh mục chưa có bài" | `gaps --top 10` (thêm `--volumes` chỉ khi đã có khoá DataForSEO và họ muốn số lượt tìm) |
+| "bài cũ nào trên web cần cập nhật" | `stale --top 20` |
+| "bài nào trên web trùng từ khoá với nhau" | `overlap` (xem `blog-cannibalization`, chế độ web) |
 | "thêm sản phẩm này vào danh sách: <url>" | `add <url> --type product --fetch` |
 | "tôi có file danh sách URL từ CMS" | `import-csv <file>` (needs `url`, ideally `title`) |
 | "đang có những web nào" / "web có bao nhiêu bài" | `list-sites` / `status` |
@@ -57,7 +60,26 @@ ask one short question: which site.
    waits 0.5 s between requests and caps at 2,000 pages. The first run on a new
    site should use `--limit 50` to confirm the result looks right, then run
    it without a limit. A limited run never marks anything as gone.
-3. **Summarise in Vietnamese**: how many posts, products, categories and pages,
+3. **Planning commands.** All read `inventory.csv` only, no network, no paid API.
+   - `gaps [--top N] [--volumes] [--json]`: categories and products with
+     `priority` 4 or 5 that no post on the site matches. A target counts as
+     covered when one post matches at least 50% (IDF weighted) of the words of
+     its name; the inventory holds no post bodies, so the match uses title,
+     h1, description, focus keyword, anchors, category and URL slug only, and
+     the output says so. Rows with `exclude=yes` or `type=gone` are never
+     targets and never count as covering posts. Topics use real names from the
+     inventory only; each comes with `vi_keywords.build_variants` variants.
+     Volumes are looked up only with `--volumes` and a DataForSEO key.
+     Relay the table in Vietnamese; the marketer can hand it to `blog-calendar`.
+   - `stale [--top N] [--drafts DIR] [--json]`: posts by oldest `lastmod`
+     (posts without `lastmod` are listed after, flagged "không rõ ngày"), plus
+     `type=gone` URLs still linked from drafts in `blog-results/` (the folder
+     next to the sites root, or `--drafts`). An old date is a reason to look,
+     not proof the post is out of date.
+   - `overlap [--top N] [--threshold T] [--drafts DIR]`: pairs of site posts
+     and drafts that target the same thing; used by the site mode of
+     `blog-cannibalization`.
+4. **Summarise in Vietnamese**: how many posts, products, categories and pages,
    which platform was found, anything robots.txt blocked.
 
 ## Rules

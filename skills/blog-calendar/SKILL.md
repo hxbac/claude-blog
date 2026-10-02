@@ -8,7 +8,7 @@ description: >
   evidence changes, and sustainable publishing capacity.
   Use when user says "editorial calendar", "content calendar", "blog calendar",
   "publishing schedule", "blog plan", "content plan", "what should I write".
-  Also use when the request is written in Vietnamese, for example "lịch nội dung", "kế hoạch đăng bài", "content calendar", "lịch đăng tháng này".
+  Also use when the request is written in Vietnamese, for example "lịch nội dung", "kế hoạch đăng bài", "content calendar", "lịch đăng tháng này", "xếp lịch cho các chủ đề sản phẩm chưa có bài".
 user-invokable: true
 argument-hint: "[<niche>]"
 license: MIT
@@ -37,6 +37,25 @@ Gather context:
 3. **Publishing cadence**: How often can they publish? (default: 2x/week)
 4. **Timeframe**: Monthly or quarterly calendar?
 5. **Business goals**: What should the blog drive? (traffic, leads, authority)
+
+### Step 1.5: Site Inputs (when a client site is configured)
+
+If `sites/<domain>/` exists (see `blog-site`), plan from what the site really
+has instead of guessing:
+
+- Run `python3 scripts/site_inventory.py gaps --top 20 --json` (from
+  `workspace/`) and use its Vietnamese table, or the JSON, as the pool of new
+  topics. Each row is a real category or product with no matching post, a
+  suggested topic and keyword variants. Take the target keyword from the
+  variants column; keep the product or category URL as the post's link target.
+  If the marketer pastes a gaps table, use that instead of running it again.
+  Do not invent products that are not in the table. Say that the match used
+  titles and descriptions only.
+- Run `python3 scripts/site_inventory.py stale --top 10` for the "Update" rows
+  of the Freshness Update Queue (oldest `lastmod` first), and for drafts that
+  still link to pages that are gone.
+- Put gap topics in the "New" rows and stale posts in the "Update" rows; do not
+  change the content mix formula below.
 
 ### Step 2: Topic Cluster Design
 

@@ -8,6 +8,9 @@ Usage:
     python3 scripts/site_inventory.py import-csv <file> [--site d]
     python3 scripts/site_inventory.py add <url> [--title T] [--type post] [--fetch]
     python3 scripts/site_inventory.py search "<query>" [--type product] [--top 10]
+    python3 scripts/site_inventory.py gaps [--site d] [--top N] [--volumes] [--json]
+    python3 scripts/site_inventory.py stale [--site d] [--top N] [--drafts DIR] [--json]
+    python3 scripts/site_inventory.py overlap [--site d] [--top N] [--threshold T] [--drafts DIR]
     python3 scripts/site_inventory.py list-sites
     python3 scripts/site_inventory.py status [--site d]
 
@@ -61,7 +64,7 @@ import urllib.robotparser
 import xml.etree.ElementTree as ET
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Callable, Optional
@@ -1536,6 +1539,410 @@ def cmd_status(args, out=print) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Planning from the inventory: gaps, stale, overlap (Phase R)
+# ---------------------------------------------------------------------------
+
+COVERAGE_THRESHOLD = 0.5
+"""A category or product counts as covered when one post matches at least this
+share of the target name's IDF weight (see ``coverage``). 0.5 means roughly
+half of the distinctive words of the name occur in one post's title, h1,
+description, focus keyword, anchors, category or URL slug."""
+
+PRIORITY_MIN = 4
+OVERLAP_THRESHOLD = 0.5
+DRAFT_SUFFIXES = (".md", ".mdx")
+MAX_DRAFT_BYTES = 2 * 1024 * 1024
+DEFAULT_PRIORITY = 3
+
+_STOP_TOKENS = frozenset({"va", "cua", "cho", "la", "mau", "the", "mot", "cac", "nhung"})
+
+
+def _truthy(value: str) -> bool:
+    return (value or "").strip().lower() in ("yes", "y", "true", "1", "x", "co")
+
+
+def _usable(row: dict) -> bool:
+    return row.get("type") != "gone" and not _truthy(row.get("exclude", ""))
+
+
+def _priority(row: dict) -> int:
+    try:
+        return max(1, min(5, int(float(row.get("priority", "") or DEFAULT_PRIORITY))))
+    except ValueError:
+        return DEFAULT_PRIORITY
+
+
+def _name_of(row: dict) -> str:
+    return (row.get("title") or row.get("h1") or "").strip()
+
+
+_TITLE_SPLIT = re.compile(r"\s+[/|\u2013\u2014-]\s+|\s*\|\s*")
+
+
+def short_name(row: dict, max_words: int = 8) -> str:
+    """The product or category name without the SEO tail of its page title
+    ("Quần Jeans Loose Fit Nam / Phong Cách ... / YaMe" -> "Quần Jeans Loose
+    Fit Nam"), cut to ``max_words`` words. Still only words from the row."""
+    head = _TITLE_SPLIT.split(_name_of(row))[0].strip()
+    return " ".join(head.split()[:max_words])
+
+
+def _name_tokens(name: str) -> list:
+    """Unigrams and bigrams of a name, without bare numbers or filler words,
+    so a product code such as "085" or the word "màu" never decides a match."""
+    out = []
+    for tok in tokenize(name):
+        parts = tok.split()
+        if len(parts) == 1 and (tok in _STOP_TOKENS or tok.isdigit()):
+            continue
+        out.append(tok)
+    return list(dict.fromkeys(out))
+
+
+def coverage(name_tokens: list, post_doc: dict, idf: dict) -> float:
+    """IDF-weighted share of ``name_tokens`` found in one post (0..1). A token
+    that no post contains keeps the largest weight, so unseen words lower the
+    score of every post."""
+    total = got = 0.0
+    for tok in name_tokens:
+        w = idf.get(tok, 0.0) or 1.0
+        total += w
+        if tok in post_doc:
+            got += w
+    return got / total if total else 0.0
+
+
+def find_gaps(rows: list, *, top: int = 10, threshold: float = COVERAGE_THRESHOLD) -> dict:
+    """Categories and priority>=4 products that no post matches.
+
+    Targets come only from inventory rows (``type`` category or product, not
+    gone, not excluded); nothing is invented. Posts count when they are neither
+    gone nor excluded. The post body is not stored in the inventory, so a post
+    is judged by title, h1, description, focus keyword, anchors, category and
+    URL slug only.
+    """
+    posts = [r for r in rows if r.get("type") == "post" and _usable(r)]
+    post_docs = [row_weights(p) for p in posts]
+    idf = idf_table(post_docs)
+    product_cats = Counter(_key_name(r.get("category", "")) for r in rows
+                           if r.get("type") == "product" and _usable(r) and r.get("category"))
+    targets = []
+    for r in rows:
+        if not _usable(r) or not _name_of(r):
+            continue
+        kind = r.get("type")
+        if kind == "category":
+            pass
+        elif kind == "product" and _priority(r) >= PRIORITY_MIN:
+            pass
+        else:
+            continue
+        name = short_name(r)
+        toks = _name_tokens(name)
+        if not toks:
+            continue
+        best, best_url = 0.0, ""
+        for p, doc in zip(posts, post_docs):
+            c = coverage(toks, doc, idf)
+            if c > best:
+                best, best_url = c, p["url"]
+        if best >= threshold:
+            continue
+        targets.append({
+            "type": kind, "name": name, "url": r["url"], "priority": _priority(r),
+            "products_in_category": product_cats.get(_key_name(name), 0) if kind == "category" else 0,
+            "best_coverage": round(best, 2), "closest_post": best_url if best > 0 else "",
+        })
+    targets.sort(key=lambda t: (-t["priority"], -t["products_in_category"],
+                                0 if t["type"] == "category" else 1, t["best_coverage"], t["name"].lower()))
+    return {"posts_considered": len(posts), "threshold": threshold,
+            "total_gaps": len(targets), "gaps": targets[: max(0, top)]}
+
+
+def _key_name(text: str) -> str:
+    return " ".join(tokenize_words(text))
+
+
+def tokenize_words(text: str) -> list:
+    return _WORD_RE.findall(to_ascii(normalize(text or "")).lower())
+
+
+def _topic_for(gap: dict) -> str:
+    name = gap["name"]
+    if gap["type"] == "category":
+        return f"Cách chọn {name}: hướng dẫn cho người mới"
+    return f"Đánh giá {name}: có đáng mua không"
+
+
+def suggest_topics(gap_result: dict, *, volumes: bool = False, variants_per_row: int = 5) -> dict:
+    """Attach a topic and ``vi_keywords.build_variants`` variants to each gap;
+    with ``volumes`` look the variants up once (needs a DataForSEO key)."""
+    import vi_keywords  # same folder; imported late so the other commands stay light
+    out = dict(gap_result)
+    note = ""
+    gaps = []
+    for g in gap_result["gaps"]:
+        g = dict(g)
+        seed = " ".join(g["name"].lower().split()[:6])
+        g["topic"] = _topic_for(g)
+        g["variants"] = [v["keyword"] for v in vi_keywords.build_variants(seed)][:variants_per_row]
+        gaps.append(g)
+    if volumes:
+        kws = list(dict.fromkeys(k for g in gaps for k in g["variants"]))
+        vols, note = vi_keywords.fetch_volumes(kws, min(len(kws), vi_keywords.MAX_LIMIT)) if kws else ({}, "")
+        for g in gaps:
+            g["volumes"] = {k: vols.get(k) for k in g["variants"]} if vols else {}
+    out["gaps"] = gaps
+    out["volumes_note"] = note
+    out["volumes_requested"] = volumes
+    return out
+
+
+def render_gaps(result: dict) -> str:
+    lines = []
+    if not result["gaps"]:
+        return ("Không thấy sản phẩm hay danh mục nào chưa có bài "
+                f"(đã xét {result['posts_considered']} bài, ngưỡng {result['threshold']}).")
+    lines.append(f"Gợi ý chủ đề cho {len(result['gaps'])} trong {result['total_gaps']} mục chưa có bài "
+                 f"(đã so với {result['posts_considered']} bài trên web).")
+    lines.append("Ghi chú: danh sách bài chỉ lưu tiêu đề, mô tả, từ khoá chính và URL, không lưu nội dung "
+                 "bài, nên việc khớp chỉ dựa trên các trường đó. Một bài có nhắc sản phẩm trong thân bài "
+                 "mà tiêu đề không nhắc vẫn có thể bị tính là chưa có bài.")
+    lines.append(f"Ngưỡng: một mục được coi là đã có bài khi một bài khớp từ {int(result['threshold'] * 100)}% "
+                 "trở lên (theo trọng số IDF) các từ trong tên mục.")
+    if result.get("volumes_note"):
+        lines.append(result["volumes_note"])
+    elif result.get("volumes_requested") is False:
+        lines.append("Chưa tra lượt tìm kiếm (thêm --volumes nếu đã có khoá DataForSEO).")
+    lines += ["", "| # | Loại | Sản phẩm/danh mục (có thật trên web) | Chủ đề gợi ý | Từ khoá và biến thể |",
+              "| --- | --- | --- | --- | --- |"]
+    for i, g in enumerate(result["gaps"], 1):
+        kind = "Danh mục" if g["type"] == "category" else "Sản phẩm"
+        vols = g.get("volumes") or {}
+        kws = "; ".join(f"{k} ({vols[k]})" if vols.get(k) is not None else k for k in g["variants"])
+        extra = f" ({g['products_in_category']} sản phẩm)" if g.get("products_in_category") else ""
+        lines.append(f"| {i} | {kind} | {g['name'].replace('|', '/')}{extra}<br>{g['url']} | "
+                     f"{g['topic'].replace('|', '/')} | {kws} |")
+    return "\n".join(lines)
+
+
+def cmd_gaps(args, out=print) -> int:
+    site_dir = resolve_site(args.site)
+    result = find_gaps(load_inventory(site_dir), top=args.top)
+    result = suggest_topics(result, volumes=args.volumes)
+    if args.json:
+        out(json.dumps(result, ensure_ascii=False, indent=1))
+    else:
+        out(render_gaps(result))
+    return 0
+
+
+# ---- stale ---------------------------------------------------------------
+
+def parse_lastmod(value: str) -> Optional[date]:
+    m = re.match(r"\s*(\d{4})-(\d{2})-(\d{2})", value or "")
+    if not m:
+        return None
+    try:
+        return date(int(m[1]), int(m[2]), int(m[3]))
+    except ValueError:
+        return None
+
+
+def drafts_dir_for(drafts: Optional[str] = None) -> Path:
+    """``--drafts`` if given, else ``blog-results/`` next to the sites root
+    (``workspace/sites`` -> ``workspace/blog-results``)."""
+    if drafts:
+        return Path(drafts).expanduser()
+    return sites_root().parent / "blog-results"
+
+
+_MD_LINK = re.compile(r"\]\(\s*<?([^)\s>]+)")
+_HREF = re.compile(r"""href\s*=\s*["']([^"']+)["']""", re.I)
+
+
+def iter_drafts(drafts: Path):
+    if not drafts.is_dir():
+        return
+    for p in sorted(drafts.rglob("*")):
+        if p.suffix.lower() in DRAFT_SUFFIXES and p.is_file() and p.name.lower() != "review.md":
+            try:
+                if p.stat().st_size <= MAX_DRAFT_BYTES:
+                    yield p, p.read_text(encoding="utf-8-sig", errors="replace")
+            except OSError:
+                continue
+
+
+def gone_links_in_drafts(rows: list, drafts: Path, base_url: str = "") -> list:
+    gone = {norm_url(r["url"]): r for r in rows if r.get("type") == "gone" and r.get("url")}
+    found = []
+    if not gone:
+        return found
+    for path, text in iter_drafts(drafts):
+        hit = set()
+        for m in list(_MD_LINK.finditer(text)) + list(_HREF.finditer(text)):
+            raw = m.group(1)
+            if raw.startswith("/") and not raw.startswith("//") and base_url:
+                raw = urllib.parse.urljoin(base_url, raw)
+            if not raw.lower().startswith(("http://", "https://")):
+                continue
+            key = norm_url(raw)
+            if key in gone and key not in hit:
+                hit.add(key)
+                found.append({"draft": str(path), "url": gone[key]["url"], "title": _name_of(gone[key])})
+    return found
+
+
+def find_stale(rows: list, drafts: Path, base_url: str = "", *, top: int = 20,
+               today: Optional[date] = None) -> dict:
+    today = today or date.today()
+    dated, undated = [], []
+    for r in rows:
+        if r.get("type") != "post" or not _usable(r):
+            continue
+        d = parse_lastmod(r.get("lastmod", ""))
+        item = {"url": r["url"], "title": _name_of(r), "lastmod": r.get("lastmod", ""),
+                "age_days": (today - d).days if d else None}
+        (dated if d else undated).append((d, item))
+    dated.sort(key=lambda t: (t[0], t[1]["url"]))
+    undated.sort(key=lambda t: t[1]["url"])
+    posts = [i for _, i in dated][: max(0, top)]
+    room = max(0, top - len(posts))
+    unknown = [i for _, i in undated][:room]
+    return {"posts": posts, "no_lastmod": unknown,
+            "no_lastmod_total": len(undated), "dated_total": len(dated),
+            "gone_linked": gone_links_in_drafts(rows, drafts, base_url),
+            "drafts_dir": str(drafts)}
+
+
+def render_stale(res: dict) -> str:
+    lines = []
+    if res["posts"]:
+        lines += [f"Bài cũ nhất trên web (theo ngày sửa lần cuối, lastmod; {res['dated_total']} bài có ngày). "
+                  "Ngày cũ chưa chắc là nội dung lỗi thời: xem lại số liệu, giá, luật trước khi sửa.", "",
+                  "| # | Bài | Sửa lần cuối | Tuổi (ngày) | URL |", "| --- | --- | --- | --- | --- |"]
+        for i, p in enumerate(res["posts"], 1):
+            lines.append(f"| {i} | {p['title'].replace('|', '/')} | {p['lastmod'][:10]} | {p['age_days']} | {p['url']} |")
+    else:
+        lines.append("Không có bài nào có ngày sửa lần cuối (lastmod) trong danh sách.")
+    if res["no_lastmod_total"]:
+        lines += ["", f"Chưa rõ ngày ({res['no_lastmod_total']} bài không có lastmod, xếp sau các bài có ngày, "
+                  "không thể so tuổi):", "", "| Bài | Ngày | URL |", "| --- | --- | --- |"]
+        for p in res["no_lastmod"]:
+            lines.append(f"| {p['title'].replace('|', '/')} | không rõ ngày | {p['url']} |")
+    lines.append("")
+    if res["gone_linked"]:
+        lines += ["Bản nháp còn dẫn tới trang đã biến mất khỏi web (type=gone), cần sửa link:", "",
+                  "| Bản nháp | URL đã mất |", "| --- | --- |"]
+        for g in res["gone_linked"]:
+            lines.append(f"| {g['draft']} | {g['url']} |")
+    else:
+        lines.append(f"Không có bản nháp nào trong {res['drafts_dir']} còn link tới trang đã mất.")
+    return "\n".join(lines)
+
+
+def cmd_stale(args, out=print) -> int:
+    site_dir = resolve_site(args.site)
+    cfg = load_site_config(site_dir)
+    res = find_stale(load_inventory(site_dir), drafts_dir_for(args.drafts), cfg.get("base_url", ""),
+                     top=args.top)
+    out(json.dumps(res, ensure_ascii=False, indent=1) if args.json else render_stale(res))
+    return 0
+
+
+# ---- overlap (cannibalization, site mode) --------------------------------
+
+_FM_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.S)
+
+
+def _fm_value(fm: str, *keys: str) -> str:
+    for k in keys:
+        m = re.search(rf"^{k}\s*:\s*(.+)$", fm, re.M | re.I)
+        if m:
+            return m.group(1).strip().strip("\"'")
+    return ""
+
+
+def draft_row(path: Path, text: str) -> Optional[dict]:
+    """A pseudo inventory row for a draft, or None when it has no title."""
+    m = _FM_RE.match(text)
+    fm = m.group(1) if m else ""
+    body = text[m.end():] if m else text
+    h1 = re.search(r"^#\s+(.+)$", body, re.M)
+    title = _fm_value(fm, "title") or (h1.group(1).strip() if h1 else "")
+    if not title:
+        return None
+    return {"url": _fm_value(fm, "canonical") or f"draft:{path}", "type": "draft", "title": title,
+            "h1": h1.group(1).strip() if h1 else "", "description": _fm_value(fm, "description"),
+            "focus_keyword": _fm_value(fm, "focus_keyword", "primary_keyword", "keyword"),
+            "path": str(path)}
+
+
+def _cos(a: dict, b: dict, idf: dict) -> float:
+    shared = sum(idf.get(t, 0.0) * min(a[t], b[t]) for t in a.keys() & b.keys())
+    na = sum(idf.get(t, 0.0) * w for t, w in a.items())
+    nb = sum(idf.get(t, 0.0) * w for t, w in b.items())
+    return shared / math.sqrt(na * nb) if na > 0 and nb > 0 else 0.0
+
+
+def find_overlaps(rows: list, drafts: Path, *, threshold: float = OVERLAP_THRESHOLD, top: int = 20) -> dict:
+    """Pairs of posts (inventory posts and drafts together) that target the
+    same thing. Uses focus keyword, title, h1, description and URL slug only;
+    ``description`` weighs 1, so shared boilerplate cannot flag a pair alone."""
+    items = [dict(r, origin="web") for r in rows if r.get("type") == "post" and _usable(r)]
+    for path, text in iter_drafts(drafts):
+        d = draft_row(path, text)
+        if d:
+            d["origin"] = "bản nháp"
+            items.append(d)
+    docs = [row_weights(r) for r in items]
+    idf = idf_table(docs)
+    seen_urls: set = set()
+    pairs = []
+    for i in range(len(items)):
+        for j in range(i + 1, len(items)):
+            a, b = items[i], items[j]
+            ua, ub = norm_url(a["url"]), norm_url(b["url"])
+            if ua == ub:
+                continue
+            sim = _cos(docs[i], docs[j], idf)
+            fa, fb = _key_name(a.get("focus_keyword", "")), _key_name(b.get("focus_keyword", ""))
+            exact = bool(fa) and fa == fb
+            if sim < threshold and not exact:
+                continue
+            level = "Nghiêm trọng" if exact or sim >= 0.8 else ("Cao" if sim >= 0.65 else "Trung bình")
+            pairs.append({"a": a["url"], "a_title": _name_of(a), "a_origin": a["origin"],
+                          "b": b["url"], "b_title": _name_of(b), "b_origin": b["origin"],
+                          "similarity": round(sim, 2), "same_focus_keyword": exact, "severity": level})
+    order = {"Nghiêm trọng": 0, "Cao": 1, "Trung bình": 2}
+    pairs.sort(key=lambda p: (order[p["severity"]], -p["similarity"], p["a"]))
+    return {"items": len(items), "threshold": threshold, "total_pairs": len(pairs),
+            "pairs": pairs[: max(0, top)]}
+
+
+def render_overlaps(res: dict) -> str:
+    if not res["pairs"]:
+        return (f"Không thấy cặp bài nào trùng ý định (đã so {res['items']} bài gồm bài trên web và bản nháp, "
+                f"ngưỡng {res['threshold']}).")
+    lines = [f"{res['total_pairs']} cặp bài có thể cạnh tranh nhau (đã so {res['items']} bài; chỉ dựa trên "
+             "từ khoá chính, tiêu đề, mô tả và URL, không đọc thân bài).", "",
+             "| Bài A | Bài B | Độ giống | Mức độ |", "| --- | --- | --- | --- |"]
+    for p in res["pairs"]:
+        lines.append(f"| {p['a_title'].replace('|', '/')} ({p['a_origin']})<br>{p['a']} | "
+                     f"{p['b_title'].replace('|', '/')} ({p['b_origin']})<br>{p['b']} | "
+                     f"{p['similarity']} | {p['severity']}{' (cùng từ khoá chính)' if p['same_focus_keyword'] else ''} |")
+    return "\n".join(lines)
+
+
+def cmd_overlap(args, out=print) -> int:
+    site_dir = resolve_site(args.site)
+    res = find_overlaps(load_inventory(site_dir), drafts_dir_for(args.drafts),
+                        threshold=args.threshold, top=args.top)
+    out(json.dumps(res, ensure_ascii=False, indent=1) if args.json else render_overlaps(res))
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -1576,6 +1983,25 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--top", type=int, default=10)
     s.add_argument("--json", action="store_true")
 
+    s = sub.add_parser("gaps", help="Sản phẩm và danh mục chưa có bài, kèm chủ đề gợi ý")
+    s.add_argument("--site")
+    s.add_argument("--top", type=int, default=10)
+    s.add_argument("--volumes", action="store_true", help="Tra lượt tìm kiếm (cần khoá DataForSEO)")
+    s.add_argument("--json", action="store_true")
+
+    s = sub.add_parser("stale", help="Bài cũ nhất trên web và link tới trang đã mất trong bản nháp")
+    s.add_argument("--site")
+    s.add_argument("--top", type=int, default=20)
+    s.add_argument("--drafts", help="Thư mục bản nháp (mặc định: blog-results/ cạnh thư mục sites)")
+    s.add_argument("--json", action="store_true")
+
+    s = sub.add_parser("overlap", help="Các cặp bài (trên web và bản nháp) có thể cạnh tranh từ khoá")
+    s.add_argument("--site")
+    s.add_argument("--top", type=int, default=20)
+    s.add_argument("--threshold", type=float, default=OVERLAP_THRESHOLD)
+    s.add_argument("--drafts")
+    s.add_argument("--json", action="store_true")
+
     sub.add_parser("list-sites", help="Các web đã cấu hình")
     s = sub.add_parser("status", help="Số dòng theo loại và lần cập nhật gần nhất")
     s.add_argument("--site")
@@ -1585,7 +2011,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[list] = None) -> int:
     args = build_parser().parse_args(argv)
     handlers = {"init": cmd_init, "refresh": cmd_refresh, "import-csv": cmd_import_csv,
-                "add": cmd_add, "search": cmd_search, "list-sites": cmd_list_sites, "status": cmd_status}
+                "add": cmd_add, "search": cmd_search, "gaps": cmd_gaps, "stale": cmd_stale,
+                "overlap": cmd_overlap, "list-sites": cmd_list_sites, "status": cmd_status}
     try:
         return handlers[args.cmd](args)
     except InventoryError as exc:

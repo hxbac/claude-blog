@@ -8,7 +8,7 @@ description: >
   severity-scored report with merge or differentiate recommendations. Use when
   user says "cannibalization", "keyword overlap", "competing pages", "duplicate
   keywords", "cannibalize".
-  Also use when the request is written in Vietnamese, for example "trùng từ khoá", "hai bài cạnh tranh nhau", "bài nào ăn thịt bài nào".
+  Also use when the request is written in Vietnamese, for example "trùng từ khoá", "hai bài cạnh tranh nhau", "bài nào ăn thịt bài nào", "bài trên web có trùng nhau không", "bài mới có trùng bài cũ trên web không".
 user-invokable: true
 argument-hint: "[directory] [--api]"
 license: MIT
@@ -19,16 +19,46 @@ license: MIT
 Detect when multiple blog posts compete for the same search keywords. Two modes:
 local-only analysis (default) and DataForSEO API mode for SERP-level data.
 
-## Two Modes
+## Modes
 
 | Mode | Flag | Cost | Data Source |
 |------|------|------|-------------|
 | Local | (default) | Free | File content analysis via Grep/Read |
+| Site | a site is configured under `sites/` | Free | Inventory posts plus `blog-results/` drafts |
 | API | `--api` | ~$0.01/call | DataForSEO Page Intersection + Ranked Keywords |
 
 Local mode works without any API keys. API mode requires DataForSEO credentials
 set as environment variables: `DATAFORSEO_USERNAME` (or `DATAFORSEO_LOGIN`) and
 `DATAFORSEO_PASSWORD`.
+
+## Site Mode Workflow
+
+Use this when the marketer has registered a client site (`sites/<domain>/`
+exists, see `blog-site`) and asks whether posts overlap, or whether a new post
+repeats one already on the web. Local mode only sees files in a folder; site
+mode sees every post the site has published as well as the drafts in
+`blog-results/`.
+
+1. Run from `workspace/`:
+   `python3 scripts/site_inventory.py overlap [--site d] [--top 20] [--threshold 0.5] [--json]`.
+   It compares inventory posts (`type=post`, not `gone`, not `exclude=yes`) and
+   drafts under `blog-results/` (override with `--drafts DIR`) pairwise, by
+   IDF-weighted overlap of focus keyword, title, h1, description and URL slug.
+   Posts are not fetched or read; bodies of live posts are unknown.
+2. A pair is reported at or above the threshold (default 0.5), or when both
+   have the same `focus_keyword`. Same focus keyword or similarity 0.8 or more
+   is Critical (Nghiêm trọng); 0.65 or more is High (Cao); the rest Medium
+   (Trung bình). This is a title and keyword signal, not SERP data.
+3. For the strongest pairs, read the two pages (a draft with Read; a live post
+   only if the marketer wants a deeper check) and give the recommendation
+   from the Recommendations section below (MERGE, DIFFERENTIATE, CANONICAL,
+   NOINDEX, NO ACTION). A live post is changed in the CMS by a human; never
+   edit the live site. For a draft that repeats a live post, ask the one
+   question: write a new angle, or rewrite the live post with `blog-rewrite`.
+4. Reply in Vietnamese with the table and the recommendation per pair.
+
+If `overlap` finds nothing, say so and note it only looked at titles,
+keywords and descriptions; then offer the local-mode body check on the drafts.
 
 ## Local Mode Workflow
 
