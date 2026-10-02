@@ -750,11 +750,27 @@ def _render_pdf(html_path: Path, out_pdf: Path, engine: str) -> bool:
                     return False
     if engine in ("auto", "weasyprint"):
         try:
-            from weasyprint import HTML, default_url_fetcher  # type: ignore
-            def fetcher(url: str, *args, **kwargs):
-                if not _local_asset_allowed(url):
-                    raise ValueError(f"blocked external PDF asset: {url}")
-                return default_url_fetcher(url, *args, **kwargs)
+            from weasyprint import HTML  # type: ignore
+            try:
+                # weasyprint < 70: a plain function wrapping default_url_fetcher
+                from weasyprint import default_url_fetcher  # type: ignore
+
+                def fetcher(url: str, *args, **kwargs):
+                    if not _local_asset_allowed(url):
+                        raise ValueError(f"blocked external PDF asset: {url}")
+                    return default_url_fetcher(url, *args, **kwargs)
+            except ImportError:
+                # weasyprint 70 removed default_url_fetcher; a URLFetcher
+                # subclass with a guarded fetch() is the supported hook.
+                from weasyprint.urls import URLFetcher  # type: ignore
+
+                class _GuardedFetcher(URLFetcher):
+                    def fetch(self, url, *args, **kwargs):
+                        if not _local_asset_allowed(url):
+                            raise ValueError(f"blocked external PDF asset: {url}")
+                        return super().fetch(url, *args, **kwargs)
+
+                fetcher = _GuardedFetcher()
             HTML(filename=str(html_path), url_fetcher=fetcher).write_pdf(str(out_pdf))
             return True
         except Exception as e:
